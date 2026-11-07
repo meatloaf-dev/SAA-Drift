@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Geomagnetic Drift Atlas</title>
+<meta name="description" content="An interactive 3D globe of Earth's magnetic field: the South Atlantic Anomaly, field intensity and declination, isogonic/isodynamic lines at any zoom, and the drift of magnetic north, 1900-2030.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#0a0e13;
+    --panel:#121823;
+    --panel-2:#1a2230;
+    --panel-3:#212b3a;
+    --border:#263040;
+    --border-soft:#1c2531;
+    --ink:#eef1f6;
+    --ink-muted:#8d98ab;
+    --ink-faint:#5c6878;
+    --accent:#19997f;
+    --accent-soft:#19997f33;
+    --east:#c87a1e;
+    --west:#3d6fc7;
+    --saa:#d9502b;
+    --saa-soft:#d9502b33;
+    --violet:#8f5fcb;
+    --focus:#5ab8ff;
+    --font-display:'Unbounded', 'Archivo', sans-serif;
+    --font-body:'Archivo', -apple-system, sans-serif;
+    --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font-body);
+    font-size:14px; line-height:1.5;
+  }
+  ::selection{ background:var(--accent-soft); }
+  a{ color:var(--accent); }
+  button, input{ font-family:inherit; color:inherit; }
+  :focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
+
+  .wrap{ max-width:1440px; margin:0 auto; padding:20px 24px 40px; }
+
+  /* ---------- header ---------- */
+  header.top{
+    display:flex; align-items:flex-end; justify-content:space-between;
+    gap:24px; flex-wrap:wrap; margin-bottom:18px; padding-bottom:16px;
+    border-bottom:1px solid var(--border-soft);
+  }
+  .title-block h1{
+    font-family:var(--font-display); font-weight:700; font-size:26px;
+    margin:0 0 4px; letter-spacing:.2px; text-wrap:balance;
+  }
+  .title-block .sub{ color:var(--ink-muted); font-size:13px; max-width:58ch; }
+  .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--panel-2); border:1px solid var(--border);
+    border-radius:99px; padding:5px 11px; font-size:11.5px;
+    color:var(--ink-muted); white-space:nowrap;
+  }
+  .chip b{ color:var(--ink); font-weight:600; }
+  .dot{ width:7px; height:7px; border-radius:50%; flex:none; }
+
+  /* ---------- layout ---------- */
+  .stage{
+    display:grid; grid-template-columns: minmax(0,1fr) 340px;
+    gap:16px; align-items:start;
+  }
+  @media (max-width: 920px){
+    .stage{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:14px;
+  }
+
+  /* ---------- map ---------- */
+  .map-panel{ position:relative; overflow:hidden; }
+  .map-head{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:12px; padding:14px 16px 0; flex-wrap:wrap;
+  }
+  .layer-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+  .layer-tab{
+    background:transparent; border:1px solid var(--border);
+    color:var(--ink-muted); border-radius:9px; padding:7px 12px;
+    font-size:12.5px; font-weight:600; cursor:pointer;
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .layer-tab:hover{ color:var(--ink); border-color:var(--ink-faint); }
+  .layer-tab[aria-pressed="true"]{
+    background:var(--accent-soft); border-color:var(--accent); color:var(--ink);
+  }
+  .map-canvas-wrap{ position:relative; margin:12px 16px 16px; border-radius:10px; overflow:hidden; border:1px solid var(--border-soft); background:#05080c; aspect-ratio:1/1; max-height:74vh; }
+  #globeHost{ position:absolute; inset:0; cursor:grab; touch-action:none; }
+  #globeHost.dragging{ cursor:grabbing; }
+  #globeHost canvas{ display:block; width:100%; height:100%; }
+  .globe-hint{
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%);
+    font-size:10.5px; color:var(--ink-faint); background:rgba(10,14,19,.7);
+    padding:4px 10px; border-radius:99px; pointer-events:none; white-space:nowrap;
+  }
+  .focus-btns{ position:absolute; top:14px; right:14px; display:flex; flex-direction:column; gap:6px; z-index:2; }
+  .focus-btn{
+    background:rgba(10,14,19,.85); border:1px solid var(--border); color:var(--ink-muted);
+    border-radius:8px; padding:6px 11px; font-size:11px; cursor:pointer; backdrop-filter:blur(4px);
+    text-align:left; white-space:nowrap;
+  }
+  .focus-btn:hover{ border-color:var(--accent); color:var(--ink); }
+  .legend{
+    position:absolute; left:14px; bottom:14px;
+    background:rgba(10,14,19,.82); border:1px solid var(--border);
+    border-radius:10px; padding:10px 12px; font-size:11px; color:var(--ink-muted);
+    backdrop-filter:blur(4px); max-width:260px;
+  }
+  .legend .bar{ width:200px; height:10px; border-radius:4px; margin:6px 0 4px; }
+  .legend .scale{ display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:10.5px; color:var(--ink-faint); }
+  .legend .name{ font-weight:600; color:var(--ink); font-size:11.5px; }
+  .map-key-wrap{
+    position:absolute; right:14px; bottom:14px; z-index:3;
+    display:flex; flex-direction:column; align-items:flex-end; gap:6px;
+  }
+  .map-key-toggle{
+    background:rgba(10,14,19,.85); border:1px solid var(--border); color:var(--ink-muted);
+    border-radius:99px; padding:5px 11px; font-size:11px; cursor:pointer; backdrop-filter:blur(4px);
+  }
+  .map-key-toggle:hover{ color:var(--ink); border-color:var(--accent); }
+  .map-key{
+    background:rgba(10,14,19,.82); border:1px solid var(--border);
+    border-radius:10px; padding:9px 12px; font-size:11px; color:var(--ink-muted);
+    backdrop-filter:blur(4px); display:flex; flex-direction:column; gap:5px; max-width:280px;
+  }
+  .map-key[hidden]{ display:none; }
+  .map-key .row{ display:flex; align-items:center; gap:7px; }
+  .map-key .swatch{ width:16px; height:3px; border-radius:2px; flex:none; }
+  .map-key .swatch.dotted{ height:0; border-top:2px dotted; background:none; }
+  .probe-box{
+    position:absolute; top:94px; right:14px;
+    background:rgba(10,14,19,.9); border:1px solid var(--border);
+    border-radius:10px; padding:10px 12px; font-size:11.5px;
+    font-family:var(--font-mono); color:var(--ink); min-width:168px;
+    backdrop-filter:blur(4px);
+  }
+  .probe-box .ttl{ font-family:var(--font-body); font-weight:600; color:var(--ink-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px; }
+  .probe-box .row{ display:flex; justify-content:space-between; gap:12px; }
+  .probe-box .row span:first-child{ color:var(--ink-faint); }
+
+  /* ---------- controls / rail ---------- */
+  .rail{ display:flex; flex-direction:column; gap:12px; }
+  .card{ padding:14px 16px; }
+  .card h2{
+    font-family:var(--font-display); font-size:12px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.6px; color:var(--ink-muted);
+    margin:0 0 10px;
+  }
+
+  .timeline-row{ display:flex; align-items:center; gap:10px; }
+  #playBtn{
+    width:34px; height:34px; border-radius:9px; border:1px solid var(--border);
+    background:var(--panel-2); color:var(--ink); cursor:pointer; flex:none;
+    display:flex; align-items:center; justify-content:center; font-size:13px;
+  }
+  #playBtn:hover{ border-color:var(--accent); }
+  input[type="range"]{
+    -webkit-appearance:none; appearance:none; flex:1; height:4px;
+    background:var(--border); border-radius:2px; outline-offset:4px;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:var(--accent); border:2px solid #0a0e13; cursor:pointer; margin-top:-5px;
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--accent); border:2px solid #0a0e13; cursor:pointer;
+  }
+  .epoch-readout{
+    display:flex; align-items:baseline; justify-content:space-between; margin-top:10px;
+  }
+  .epoch-readout .year{ font-family:var(--font-mono); font-size:28px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .era-badge{
+    font-size:10.5px; padding:3px 8px; border-radius:99px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.4px;
+  }
+  .era-badge.igrf14{ background:#8f5fcb2a; color:#b79bea; border:1px solid #8f5fcb55; }
+  .era-badge.mco_chaos{ background:var(--accent-soft); color:#5fd6bb; border:1px solid #19997f66; }
+  .era-badge.igrf14_predicted{ background:transparent; color:var(--ink-muted); border:1px dashed var(--ink-faint); }
+  .era-caption{ font-size:11px; color:var(--ink-faint); margin-top:4px; }
+  .proj-toggle{
+    display:flex; align-items:center; gap:7px; margin-top:12px; padding-top:12px;
+    border-top:1px solid var(--border-soft); font-size:11.5px; color:var(--ink-muted); cursor:pointer;
+  }
+  .proj-toggle input{ accent-color:var(--accent); width:14px; height:14px; cursor:pointer; flex:none; }
+  .forecast-flag{
+    position:absolute; top:14px; left:14px; z-index:2;
+    background:rgba(10,14,19,.85); border:1px dashed var(--ink-faint);
+    border-radius:8px; padding:6px 10px; font-size:11px; color:var(--ink-muted);
+    backdrop-filter:blur(4px);
+  }
+  .forecast-flag b{ color:var(--ink); }
+
+  /* ---------- page nav ---------- */
+  .page-nav{ display:flex; gap:8px; margin-bottom:16px; }
+  .page-tab{
+    background:transparent; border:1px solid var(--border); color:var(--ink-muted);
+    border-radius:10px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer;
+    font-family:var(--font-display);
+  }
+  .page-tab:hover{ color:var(--ink); border-color:var(--ink-faint); }
+  .page-tab[aria-pressed="true"]{ background:var(--accent-soft); border-color:var(--accent); color:var(--ink); }
+
+  /* ---------- location page ---------- */
+  .loc-search-row{ display:flex; gap:10px; position:relative; margin-bottom:4px; }
+  .loc-search-row input{
+    flex:1; background:var(--panel-2); border:1px solid var(--border); color:var(--ink);
+    border-radius:9px; padding:11px 14px; font-size:14px;
+  }
+  .loc-search-row input:focus{ border-color:var(--accent); }
+  .loc-dropdown{
+    position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:5;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:10px;
+    max-height:280px; overflow-y:auto; box-shadow:0 12px 28px rgba(0,0,0,.4);
+  }
+  .loc-dropdown button{
+    display:flex; width:100%; justify-content:space-between; gap:10px;
+    background:none; border:none; color:var(--ink); text-align:left;
+    padding:9px 14px; font-size:13px; cursor:pointer;
+  }
+  .loc-dropdown button:hover{ background:var(--panel-3); }
+  .loc-dropdown button span:last-child{ color:var(--ink-faint); font-family:var(--font-mono); font-size:11.5px; }
+  .loc-result{ margin-top:16px; }
+  .loc-head{ display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+  .loc-head h2{ font-family:var(--font-display); font-size:19px; margin:0; }
+  .loc-head .coords{ font-family:var(--font-mono); color:var(--ink-muted); font-size:13px; }
+  .loc-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:18px; }
+  .loc-stats .stat{ border-top:none; padding:0; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .loc-charts{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:760px){ .loc-charts{ grid-template-columns:1fr; } }
+  .loc-chart-card{ background:var(--panel-2); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+  .loc-chart-card h3{ font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-muted); margin:0 0 10px; }
+  canvas.loc-canvas{ width:100%; height:180px; display:block; }
+  .loc-chart-legend{ display:flex; gap:14px; margin-top:8px; font-size:10.5px; color:var(--ink-faint); flex-wrap:wrap; }
+  .loc-chart-legend .sw{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  .loc-empty{ color:var(--ink-faint); font-size:13px; padding:30px 0; text-align:center; }
+
+  .stat{ display:flex; flex-direction:column; gap:3px; padding:9px 0; border-top:1px solid var(--border-soft); }
+  .stat:first-child{ border-top:none; padding-top:0; }
+  .stat .label{ font-size:11px; color:var(--ink-muted); }
+  .stat .value{ font-family:var(--font-mono); font-size:16.5px; font-variant-numeric:tabular-nums; }
+  .stat .delta{ font-size:11px; font-family:var(--font-mono); }
+  .delta.down{ color:var(--saa); }
+  .delta.up{ color:var(--west); }
+
+  .spark-wrap{ margin-top:4px; }
+  canvas#spark{ width:100%; height:92px; display:block; }
+  .spark-caption{ display:flex; justify-content:space-between; font-size:10.5px; color:var(--ink-faint); font-family:var(--font-mono); margin-top:2px; }
+
+  .probe-card .empty{ color:var(--ink-faint); font-size:12px; }
+
+  /* ---------- footer ---------- */
+  footer{ margin-top:22px; padding-top:16px; border-top:1px solid var(--border-soft); color:var(--ink-muted); font-size:12px; }
+  footer h3{ font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink); margin:0 0 8px; }
+  footer p{ margin:0 0 10px; max-width:76ch; }
+  footer .src-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:10px; }
+  footer .src{ border-left:2px solid var(--border); padding-left:10px; }
+  footer .src b{ display:block; color:var(--ink); font-size:12.5px; margin-bottom:2px; }
+  footer code{ font-family:var(--font-mono); background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:11px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="top">
+    <div class="title-block">
+      <h1>Geomagnetic Drift Atlas</h1>
+      <div class="sub">Field intensity, declination &amp; agonic lines, the South Atlantic Anomaly's drift, and the migration of magnetic north — 1900 to 2030, the last four years a published forecast.</div>
+    </div>
+    <div class="chips">
+      <span class="chip"><span class="dot" style="background:var(--accent)"></span> Swarm / CHAOS&#8209;Core field, <b>real satellite data</b></span>
+      <span class="chip"><span class="dot" style="background:var(--violet)"></span> IGRF&#8209;14 historical context</span>
+      <span class="chip"><span class="dot" style="background:transparent;border:1px dashed var(--ink-faint)"></span> 2027–2030 forecast</span>
+      <span class="chip">Grid 4°×4° @ 460&nbsp;km altitude</span>
+    </div>
+  </header>
+
+  <nav class="page-nav" role="tablist" aria-label="Page">
+    <button class="page-tab" data-page="atlas" aria-pressed="true">Global atlas</button>
+    <button class="page-tab" data-page="location" aria-pressed="false">Location history</button>
+  </nav>
+
+  <section id="pageAtlas">
+  <div class="stage">
+
+    <!-- ===================== MAP ===================== -->
+    <div class="panel map-panel">
+      <div class="map-head">
+        <div class="layer-tabs" role="tablist" aria-label="Map layer">
+          <button class="layer-tab" data-layer="field" aria-pressed="true">Field intensity</button>
+          <button class="layer-tab" data-layer="decl" aria-pressed="false">Declination &amp; agonic lines</button>
+        </div>
+        <div class="layer-tabs">
+          <button class="layer-tab" id="passToggle" aria-pressed="false" title="Overlay 11 real Swarm-A measurement passes from 2026-11-03">🛰 Real satellite pass</button>
+        </div>
+      </div>
+      <div class="map-canvas-wrap" id="mapCanvasWrap">
+        <div id="globeHost"></div>
+        <div class="globe-hint">drag to rotate · scroll to zoom · click to probe</div>
+        <div class="focus-btns">
+          <button class="focus-btn" id="focusSAA">◎ Center on SAA</button>
+          <button class="focus-btn" id="focusPole">◎ Center on N pole</button>
+        </div>
+        <div class="forecast-flag" id="forecastFlag" hidden>⚠ <b>Forecast</b> — modeled, not yet observed</div>
+        <div class="forecast-flag" id="hiresFlag" hidden style="top:56px;border-style:solid;border-color:var(--accent)">🔬 <b>High-resolution crustal detail</b></div>
+        <div class="legend" id="legend"></div>
+        <div class="map-key-wrap">
+          <button class="map-key-toggle" id="mapKeyToggle" aria-expanded="true">Legend ▾</button>
+          <div class="map-key" id="mapKey"></div>
+        </div>
+        <div class="probe-box" id="probeBox" hidden>
+          <div class="ttl">Probe</div>
+          <div class="row"><span>lon, lat</span><span id="pLL">—</span></div>
+          <div class="row"><span>F (total field)</span><span id="pF">—</span></div>
+          <div class="row"><span>D (declination)</span><span id="pD">—</span></div>
+          <div class="row"><span>dF/dt</span><span id="pSV">—</span></div>
+          <div class="row"><span>→ SAA centre</span><span id="pDist">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== RAIL ===================== -->
+    <div class="rail">
+
+      <div class="panel card">
+        <h2>Epoch</h2>
+        <div class="timeline-row">
+          <button id="playBtn" aria-label="Play timelapse">▶</button>
+          <input type="range" id="epochSlider" min="0" max="0" step="1" value="0" aria-label="Epoch scrubber">
+        </div>
+        <div class="epoch-readout">
+          <span class="year" id="yearLabel">—</span>
+          <span class="era-badge" id="eraBadge">—</span>
+        </div>
+        <div class="era-caption" id="eraCaption">—</div>
+        <label class="proj-toggle">
+          <input type="checkbox" id="projToggle">
+          Model projected data through 2030 (forecast, not observed)
+        </label>
+      </div>
+
+      <div class="panel card">
+        <h2>South Atlantic Anomaly</h2>
+        <div class="stat">
+          <div class="label">Minimum field strength (460&nbsp;km)</div>
+          <div class="value" id="saaF">—</div>
+          <div class="delta" id="saaFDelta">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Anomaly centre</div>
+          <div class="value" id="saaPos">—</div>
+          <div class="delta" id="saaDrift">—</div>
+        </div>
+      </div>
+
+      <div class="panel card">
+        <h2>North magnetic pole</h2>
+        <div class="stat">
+          <div class="label">Position (nearest observed year)</div>
+          <div class="value" id="poleyPos">—</div>
+          <div class="delta" id="poleDrift">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Drift speed, trailing 10&nbsp;yr</div>
+          <div class="value" id="poleSpeed">—</div>
+        </div>
+      </div>
+
+      <div class="panel card">
+        <h2 id="sparkTitle">SAA minimum field, 1900–2030</h2>
+        <div class="spark-wrap">
+          <canvas id="spark" width="600" height="160"></canvas>
+          <div class="spark-caption"><span id="sparkMin">—</span><span id="sparkMax">—</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>
+    <h3>About this atlas</h3>
+    <p>Click anywhere on the map to probe the field at that point. Use the slider or ▶ to scrub through 130&nbsp;years of geomagnetic change — watch the anomaly deepen and march west, and the north magnetic pole race from Arctic Canada toward Siberia. The final four years (2027–2030) are a published forecast, not a measurement — shown with a dashed badge and boundary.</p>
+    <div class="src-grid">
+      <div class="src">
+        <b>Core field model, 1997–2026</b>
+        ESA Swarm <code>MCO_SHA_2X</code> product (CHAOS&#8209;Core, DTU Space) — fit to real Swarm, CryoSat&#8209;2, Ørsted and ground&#8209;observatory magnetic measurements. Queried from ESA's <code>vires.services</code> API on a recurring schedule, so this stays current without a manual rebuild.
+      </div>
+      <div class="src">
+        <b>Core field model, 1900–1995</b>
+        IGRF&#8209;14 (IAGA / NOAA NCEI), the public reference model, evaluated at the same 460&nbsp;km altitude for historical continuity before Swarm's launch — also via <code>vires.services</code>.
+      </div>
+      <div class="src">
+        <b>Forecast, 2027–2030</b>
+        IGRF&#8209;14's predictive secular&#8209;variation segment — the same kind of 5&#8209;year-ahead forecast NOAA/BGS publish as the World Magnetic Model. A projection of rate, shape and trajectory, not an observation.
+      </div>
+      <div class="src">
+        <b>Magnetic north pole track</b>
+        NOAA NCEI historical &amp; predicted dip&#8209;pole positions, 1590–2025 (<code>ngdc.noaa.gov/geomag/data/poles</code>).
+      </div>
+      <div class="src">
+        <b>Coastlines &amp; borders</b>
+        Natural Earth 1:10m admin&#8209;0 countries, via <code>world-atlas</code> — coastline and political borders separated using shared&#8209;edge topology, simplified from ~480k to ~70k points.
+      </div>
+      <div class="src">
+        <b>City &amp; postal code gazetteer</b>
+        GeoNames <code>cities15000</code> (all ~34,000 places over 15,000 population) and <code>US.zip</code> postal codes, CC BY 4.0.
+      </div>
+      <div class="src">
+        <b>Real satellite pass (toggle, field layer)</b>
+        Actual 1&#8209;Hz Swarm&#8209;A <code>MAGx_LR</code> Level&#8209;1b measurements for 2026&#8209;11&#8209;03 — not a model, the real instrument reading, same file anyone can pull from <code>swarm-diss.eo.esa.int</code>.
+      </div>
+      <div class="src">
+        <b>Close-zoom isogonic lines</b>
+        The CHAOS composite model — core field plus the static crustal field to degree/order 185 — includes real crustal-field structure the coarser models above can't see, not just finer interpolation of the same smooth field. Evaluated fresh each refresh on a 0.5° grid, then contoured at 0.25° resolution once you zoom in past ~6° of visible arc.
+      </div>
+    </div>
+    <p style="margin-top:12px">The grids above are generated offline on a recurring schedule by querying ESA's VirES API (<code>vires.services</code>) with a personal access token, then committed as the static data files this page loads — the page itself makes no live network calls and needs no login from you. Raw per&#8209;satellite telemetry (Level&#8209;1b/2 CDF products) is also available from VirES and ESA's open dissemination server at <code>swarm-diss.eo.esa.int</code> for anyone who wants to go a layer deeper.</p>
+  </footer>
+  </section>
+
+  <section id="pageLocation" hidden>
+    <div class="panel" style="padding:18px 20px;">
+      <h2 style="font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-muted); margin:0 0 12px;">Find a location</h2>
+      <div class="loc-search-row">
+        <input type="text" id="locInput" placeholder="Search a city, US zip code, or lat, lon (e.g. Rio de Janeiro / 94103 / -22.9, -43.2)" autocomplete="off">
+        <div class="loc-dropdown" id="locDropdown" hidden></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--ink-faint);margin-top:6px;">Matched against ~34,000 populated places worldwide and all 41,000+ US zip codes, offline (no live geocoding — this page makes no network calls). Coordinates like <code>-22.9, -43.2</code> work for anywhere else.</div>
+
+      <div class="loc-result" id="locResult">
+        <div class="loc-empty">Search above to see a location's magnetic history.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script src="data/igrf_data.js"></script>
+<script src="data/pole_data.js"></script>
+<script src="data/country_data.js"></script>
+<script src="data/cities_data.js"></script>
+<script src="data/zip_data.js"></script>
+<script src="data/pass_data.js"></script>
+<script src="data/chaos_fine_data.js"></script>
+<script>
+(function(){
+  "use strict";
+  const D = window.IGRF_DATA, POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA;
+  const meta = D.meta;
+  const lats = meta.lats, lons = meta.lons;
+  const latN = lats.length, lonN = lons.length;
+  const epochs = meta.epochs;
+
+  // ---------- derive global ranges once ----------
+  let fMin = Infinity, fMax = -Infinity;
+  for (const y of epochs){
+    for (const v of D.F[y]){ if (v<fMin) fMin=v; if (v>fMax) fMax=v; }
+  }
+  const DECL_CLAMP = 60; // deg, saturate beyond this for readability
+
+  // ---------- colour ramps ----------
+  function lerp(a,b,t){ return a+(b-a)*t; }
+  function hsl(h,s,l){ return `hsl(${h} ${s}% ${l}%)`; }
+  // analytic HSL->RGB (no canvas/GPU round-trip) -- paintHeatmap calls this per grid cell,
+  // thousands of times a frame, so this needs to be cheap pure math, not a DOM operation.
+  function hslToRgb(h, s, l){
+    h = ((h % 360) + 360) % 360; s = Math.max(0,Math.min(100,s))/100; l = Math.max(0,Math.min(100,l))/100;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs((h/60) % 2 - 1));
+    const m = l - c/2;
+    let r,g,b;
+    if (h < 60) { r=c; g=x; b=0; } else if (h < 120) { r=x; g=c; b=0; }
+    else if (h < 180) { r=0; g=c; b=x; } else if (h < 240) { r=0; g=x; b=c; }
+    else if (h < 300) { r=x; g=0; b=c; } else { r=c; g=0; b=x; }
+    return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)];
+  }
+
+  // sequential, single hue (amber->red), t=0 strong/safe field -> t=1 weak/anomalous
+  function fieldHSL(t){
+    t = Math.max(0, Math.min(1, t));
+    return [lerp(32, 14, t), lerp(28, 88, t), lerp(14, 56, t)];
+  }
+  function fieldColor(t){ return hsl(...fieldHSL(t)); }
+  function fieldColorRGB(t){ return hslToRgb(...fieldHSL(t)); }
+
+  // diverging, west/azure (negative) <-> east/amber (positive) around a shared neutral at 0.
+  // hue is fixed per side (no hue-lerp across the wheel); only saturation/lightness ramp with magnitude.
+  function divergingHSL(t){ // t in [-1,1]
+    t = Math.max(-1, Math.min(1, t));
+    const hue = t >= 0 ? 32 : 218;      // amber : azure, matches --east / --west
+    const m = Math.abs(t);
+    return [hue, lerp(8, t>=0?74:55, m), lerp(15, t>=0?45:51, m)];
+  }
+  function divergingColor(t){ return hsl(...divergingHSL(t)); }
+  function divergingColorRGB(t){ return hslToRgb(...divergingHSL(t)); }
+
+  function idx(li, lo){ return li*lonN + lo; }
+
+  // the colour ramp is deliberately clipped to the band where the anomaly actually lives —
+  // everything calmer than FIELD_DOMAIN[1] reads as flat/background, so the SAA pops
+  // instead of the whole planet showing one smooth gradient.
+  const FIELD_DOMAIN = [18000, 28000]; // nT
+
+  // ---------- equirectangular texture (this is what gets painted onto the sphere) ----------
+  // resolution and contour density both scale up as the camera zooms in, so close-up views
+  // stay crisp and show finer agonic/isodynamic lines instead of a fixed, eventually-blurry image.
+  let TEX_W = 2048, TEX_H = 1024;
+  const texCanvas = document.createElement('canvas');
+  texCanvas.width = TEX_W; texCanvas.height = TEX_H;
+  const ctx = texCanvas.getContext('2d');
+  function setTexSize(w, h){ TEX_W = w; TEX_H = h; texCanvas.width = w; texCanvas.height = h; }
+
+  const LOD_TIERS = [
+    { texW: 2048, texH: 1024, declStep: 10, fieldStep: 1500 }, // far (default)
+    { texW: 3072, texH: 1536, declStep: 5,  fieldStep: 1000 }, // medium
+    { texW: 4096, texH: 2048, declStep: 2,  fieldStep: 600  }, // close
+  ];
+  function lodFor(dist){
+    if (dist < 1.9) return LOD_TIERS[2];
+    if (dist < 2.6) return LOD_TIERS[1];
+    return LOD_TIERS[0];
+  }
+  function contourLevelsFor(layer, tier){
+    if (layer === 'decl'){
+      const lv = []; for (let v=-80; v<=80; v+=tier.declStep) lv.push(v);
+      return lv;
+    }
+    const lv = []; for (let v=18000; v<=27000; v+=tier.fieldStep) lv.push(v);
+    if (!lv.includes(22000)) lv.push(22000);
+    return lv.sort((a,b)=>a-b);
+  }
+
+  function lonLatToXY(lon, lat){
+    return [ (lon+180)/360*TEX_W, (90-lat)/180*TEX_H ];
+  }
+
+  // ---------- offscreen heatmap (native grid resolution, upscaled with smoothing) ----------
+  const off = document.createElement('canvas');
+  off.width = lonN; off.height = latN;
+  const offCtx = off.getContext('2d');
+  const imgData = offCtx.createImageData(lonN, latN);
+
+  function paintHeatmap(layer, epochIdx){
+    const y = epochs[epochIdx];
+    const arrF = D.F[y], arrD = D.D0[y];
+    const data = imgData.data;
+    for (let li=0; li<latN; li++){
+      const row = (latN-1-li); // flip: li=last (north,+88) -> row 0 (top)
+      for (let lo=0; lo<lonN; lo++){
+        const i = idx(li, lo);
+        let rgb;
+        if (layer === 'field'){
+          const t = Math.max(0, Math.min(1, (FIELD_DOMAIN[1] - arrF[i]) / (FIELD_DOMAIN[1] - FIELD_DOMAIN[0])));
+          rgb = fieldColorRGB(Math.pow(t, 0.75));
+        } else {
+          const t = Math.max(-1, Math.min(1, arrD[i]/DECL_CLAMP));
+          rgb = divergingColorRGB(t);
+        }
+        const p = (row*lonN + lo)*4;
+        data[p]=rgb[0]; data[p+1]=rgb[1]; data[p+2]=rgb[2]; data[p+3]=255;
+      }
+    }
+    offCtx.putImageData(imgData, 0, 0);
+  }
+
+  // ---------- marching squares contour ----------
+  function marchingSquares(arr, threshold){
+    const segs = [];
+    for (let li=0; li<latN-1; li++){
+      for (let lo=0; lo<lonN-1; lo++){
+        const tl = arr[idx(li+1, lo)];     // north-west corner (higher lat)
+        const tr = arr[idx(li+1, lo+1)];
+        const br = arr[idx(li, lo+1)];
+        const bl = arr[idx(li, lo)];
+        const cTL = tl>threshold, cTR = tr>threshold, cBR = br>threshold, cBL = bl>threshold;
+        const code = (cTL?1:0)|(cTR?2:0)|(cBR?4:0)|(cBL?8:0);
+        if (code===0 || code===15) continue;
+        const lat0 = lats[li], lat1 = lats[li+1], lon0 = lons[lo], lon1 = lons[lo+1];
+        function onTop(){ const f=(threshold-tl)/(tr-tl); return [lon0+(lon1-lon0)*f, lat1]; }
+        function onBottom(){ const f=(threshold-bl)/(br-bl); return [lon0+(lon1-lon0)*f, lat0]; }
+        function onLeft(){ const f=(threshold-bl)/(tl-bl); return [lon0, lat0+(lat1-lat0)*f]; }
+        function onRight(){ const f=(threshold-br)/(tr-br); return [lon1, lat0+(lat1-lat0)*f]; }
+        const pairs = {
+          1:[onLeft,onTop], 2:[onTop,onRight], 3:[onLeft,onRight],
+          4:[onRight,onBottom], 6:[onTop,onBottom], 7:[onLeft,onBottom],
+          8:[onBottom,onLeft], 9:[onTop,onBottom], 11:[onRight,onBottom],
+          12:[onLeft,onRight], 13:[onTop,onRight], 14:[onTop,onLeft]
+        };
+        if (code===5){ segs.push([onLeft(),onTop()]); segs.push([onRight(),onBottom()]); continue; }
+        if (code===10){ segs.push([onTop(),onRight()]); segs.push([onBottom(),onLeft()]); continue; }
+        const fns = pairs[code];
+        if (fns) segs.push([fns[0](), fns[1]()]);
+      }
+    }
+    return segs;
+  }
+
+  // ---------- haversine ----------
+  function haversine(lon1,lat1,lon2,lat2){
+    const R=6371, toRad=Math.PI/180;
+    const dLat=(lat2-lat1)*toRad, dLon=(lon2-lon1)*toRad;
+    const a=Math.sin(dLat/2)**2 + Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)**2;
+    return 2*R*Math.asin(Math.sqrt(a));
+  }
+
+  // ---------- pole track helpers ----------
+  function poleAtYear(points, year){
+    if (year <= points[0][2]) return points[0];
+    if (year >= points[points.length-1][2]) return points[points.length-1];
+    for (let i=0;i<points.length-1;i++){
+      if (points[i][2] <= year && points[i+1][2] >= year){
+        const t = (year-points[i][2])/(points[i+1][2]-points[i][2]);
+        return [ lerp(points[i][0],points[i+1][0],t), lerp(points[i][1],points[i+1][1],t), year ];
+      }
+    }
+    return points[points.length-1];
+  }
+
+  // ---------- state ----------
+  // the last epoch actually backed by real measurements (mco_chaos) -- everything after this
+  // is IGRF-14's predictive secular-variation segment, a forecast. Scrubbing defaults to "today"
+  // (the latest real data) and only reaches the forecast years once the toggle is switched on.
+  const CUTOFF_IDX = epochs.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos');
+  const state = { layer:'field', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false };
+  function maxAllowedIdx(){ return state.showProjection ? epochs.length-1 : CUTOFF_IDX; }
+  let playTimer = null;
+
+  const layerCfg = {
+    field: { name:'Field intensity (F)', unit:'nT', ring:true },
+    decl:  { name:'Declination (D) & isogonic lines', unit:'°', ring:false },
+  };
+
+  const EMPHASIS = { field: 22000, decl: 0 };
+
+  // ---------- main render: paints the equirect texture, then pushes it to the sphere ----------
+  // The texture now carries ONLY the colour heatmap -- every line (graticule, coastlines,
+  // borders, isogonic/isodynamic contours, SAA/pole tracks, satellite pass) is real vector
+  // geometry (see updateVectorLayers below), so none of it ever blurs or pixelates on zoom,
+  // at any distance, not just past a close-zoom threshold. Only small marker dots stay
+  // texture-drawn, since a soft-edged blob doesn't suffer the same close-zoom blur a thin
+  // line does.
+  function render(){
+    const y = epochs[state.epochIdx];
+    const tier = lodFor(cam.dist);
+    if (TEX_W !== tier.texW) setTexSize(tier.texW, tier.texH);
+    paintHeatmap(state.layer, state.epochIdx);
+
+    const w = TEX_W, h = TEX_H;
+    ctx.imageSmoothingEnabled = true;
+    ctx.fillStyle = '#05080c';
+    ctx.fillRect(0,0,w,h);
+    ctx.drawImage(off, 0, 0, w, h);
+
+    function dot(lon, lat, color, r){
+      const [x,yy] = lonLatToXY(lon, lat);
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x,yy,r,0,2*Math.PI); ctx.fill();
+      ctx.strokeStyle = '#0a0e13'; ctx.lineWidth = r*0.3; ctx.stroke();
+    }
+    const c = meta.saa_center[y];
+    dot(c[0], c[1], '#d9502b', 5);
+    const npPts = POLE.north;
+    const p = poleAtYear(npPts, Math.min(y, npPts[npPts.length-1][2]));
+    dot(p[0], p[1], '#19997f', 5);
+
+    if (state.showPass && state.layer==='field'){
+      for (const pass of PASS.passes) dot(pass[0][2], pass[0][1], '#5ab8ff', 3);
+    }
+
+    texture.needsUpdate = true;
+    updateVectorLayers(tier);
+    updateProbeMarker();
+    updateLegend();
+    updateStats();
+  }
+
+  function updateLegend(){
+    const cfg = layerCfg[state.layer];
+    const el = document.getElementById('legend');
+    let gradient, lo, hi;
+    if (state.layer==='field'){
+      gradient = `linear-gradient(90deg, ${fieldColor(0)}, ${fieldColor(.5)}, ${fieldColor(1)})`;
+      lo = `≥${fmtNum(FIELD_DOMAIN[1])} nT (calm)`; hi = `≤${fmtNum(FIELD_DOMAIN[0])} nT (anomalous)`;
+    } else {
+      gradient = `linear-gradient(90deg, ${divergingColor(-1)}, ${divergingColor(0)}, ${divergingColor(1)})`;
+      lo = `${DECL_CLAMP}°W`; hi = `${DECL_CLAMP}°E`;
+    }
+    el.innerHTML = `<div class="name">${cfg.name}</div>
+      <div class="bar" style="background:${gradient}"></div>
+      <div class="scale"><span>${lo}</span><span>${hi}</span></div>`;
+
+    const key = document.getElementById('mapKey');
+    const curTier = lodFor(cam.dist);
+    const closeNote = cam.dist < VECTOR_ZOOM_DIST
+      ? '' : ' — zoom in closer for finer-grained lines';
+    const extra = state.layer==='field'
+      ? `<div class="row"><span class="swatch" style="background:#ffd9a0"></span> isodynamic lines, every ${fmtNum(curTier.fieldStep)}&nbsp;nT</div>
+         <div class="row"><span class="swatch" style="background:#5ab8ff"></span> 22,000&nbsp;nT line (emphasised)</div>`
+      : `<div class="row"><span class="swatch" style="background:#eef1f6"></span> isogonic lines, every ${curTier.declStep}°${closeNote}</div>
+         <div class="row"><span class="swatch" style="background:#5ab8ff"></span> 0° line (emphasised)</div>`;
+    const tight = `<div class="row" style="color:var(--ink-faint);font-size:10px;max-width:220px">Lines packed tight = the field is changing fast over a short distance.</div>`;
+    let passRow = '';
+    if (state.showPass && state.layer==='field'){
+      let minF = Infinity, minT = '';
+      for (const pass of PASS.passes) for (const p of pass) if (p[3] < minF){ minF = p[3]; minT = p[0]; }
+      passRow = `<div class="row"><span class="swatch" style="background:#5ab8ff"></span> ${PASS.satellite} measured, ${PASS.date} (${PASS.passes.length} passes, min ${fmtNum(minF)}&nbsp;nT at ${minT.slice(11)}&nbsp;UTC)</div>`;
+    }
+    key.innerHTML = `
+      ${extra}
+      ${tight}
+      <div class="row"><span class="swatch" style="background:rgba(238,241,246,.9)"></span> coastline</div>
+      <div class="row"><span class="swatch" style="background:rgba(238,241,246,.4)"></span> country border</div>
+      <div class="row"><span class="swatch" style="background:#d9502b"></span> SAA centre track</div>
+      <div class="row"><span class="swatch" style="background:#19997f"></span> N magnetic pole track</div>
+      ${passRow}`;
+  }
+
+  function fmtNum(n, d=0){ return n.toLocaleString('en-US', {maximumFractionDigits:d, minimumFractionDigits:d}); }
+
+  function updateStats(){
+    const idxE = state.epochIdx, y = epochs[idxE];
+    document.getElementById('yearLabel').textContent = y;
+    const src = meta.source_of[y];
+    const badge = document.getElementById('eraBadge');
+    const badgeText = { mco_chaos:'Swarm / CHAOS', igrf14:'IGRF-14', igrf14_predicted:'IGRF-14 · forecast' }[src];
+    badge.textContent = badgeText;
+    badge.className = 'era-badge ' + src;
+    document.getElementById('eraCaption').textContent = meta.models[src];
+    document.getElementById('forecastFlag').hidden = (src !== 'igrf14_predicted');
+    document.getElementById('mapCanvasWrap').style.borderStyle = (src === 'igrf14_predicted') ? 'dashed' : 'solid';
+    document.getElementById('mapCanvasWrap').style.borderColor = (src === 'igrf14_predicted') ? 'var(--ink-faint)' : '';
+
+    const c = meta.saa_center[y];
+    const c0 = meta.saa_center[epochs[0]];
+    document.getElementById('saaF').textContent = fmtNum(c[2]) + ' nT';
+    const prev = idxE>0 ? meta.saa_center[epochs[idxE-1]][2] : c[2];
+    const d1 = c[2]-prev;
+    const dEl = document.getElementById('saaFDelta');
+    dEl.textContent = (d1<=0?'↓ ':'↑ ') + fmtNum(Math.abs(d1),0) + ' nT since previous epoch';
+    dEl.className = 'delta ' + (d1<=0?'down':'up');
+
+    document.getElementById('saaPos').textContent = `${c[1].toFixed(1)}°, ${c[0].toFixed(1)}°`;
+    const drift = haversine(c0[0],c0[1],c[0],c[1]);
+    document.getElementById('saaDrift').textContent = `${fmtNum(drift)} km drifted since 1900 (mostly westward)`;
+
+    const npPts = POLE.north;
+    const pNow = poleAtYear(npPts, Math.min(y, npPts[npPts.length-1][2]));
+    const p0 = poleAtYear(npPts, epochs[0]);
+    document.getElementById('poleyPos').textContent = `${pNow[1].toFixed(2)}°N, ${pNow[0].toFixed(2)}°`;
+    const pdrift = haversine(p0[0],p0[1],pNow[0],pNow[1]);
+    document.getElementById('poleDrift').textContent = `${fmtNum(pdrift)} km drifted since ${epochs[0]}`;
+
+    const yBack = Math.max(npPts[0][2], pNow[2]-10);
+    const pBack = poleAtYear(npPts, yBack);
+    const spdDist = haversine(pBack[0],pBack[1],pNow[0],pNow[1]);
+    const spdYrs = Math.max(1, pNow[2]-yBack);
+    document.getElementById('poleSpeed').textContent = `${fmtNum(spdDist/spdYrs,1)} km/yr`;
+  }
+
+  // ---------- sparkline ----------
+  function renderSpark(){
+    const c = document.getElementById('spark');
+    const ctx2 = c.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio||1,2);
+    const cw = c.clientWidth || 300, ch = 92;
+    c.width = cw*dpr; c.height = ch*dpr;
+    ctx2.setTransform(dpr,0,0,dpr,0,0);
+    ctx2.clearRect(0,0,cw,ch);
+
+    const epochsView = epochs.slice(0, maxAllowedIdx()+1);
+    const vals = epochsView.map(y=>meta.saa_center[y][2]);
+    const vMin = Math.min(...vals), vMax = Math.max(...vals);
+    const pad = 6;
+    function px(i){ return pad + i/(epochsView.length-1) * (cw-2*pad); }
+    function py(v){ return ch-10 - (v-vMin)/(vMax-vMin) * (ch-20); }
+
+    // grid
+    ctx2.strokeStyle = 'rgba(141,152,171,0.15)';
+    ctx2.lineWidth = 1;
+    for (let g=0; g<=2; g++){
+      const yy = 10 + g*(ch-20)/2;
+      ctx2.beginPath(); ctx2.moveTo(pad,yy); ctx2.lineTo(cw-pad,yy); ctx2.stroke();
+    }
+
+    // area
+    ctx2.beginPath();
+    ctx2.moveTo(px(0), ch-4);
+    vals.forEach((v,i)=> ctx2.lineTo(px(i), py(v)));
+    ctx2.lineTo(px(vals.length-1), ch-4);
+    ctx2.closePath();
+    const grad = ctx2.createLinearGradient(0,0,0,ch);
+    grad.addColorStop(0,'#d9502b55'); grad.addColorStop(1,'#d9502b05');
+    ctx2.fillStyle = grad; ctx2.fill();
+
+    // line
+    ctx2.beginPath();
+    vals.forEach((v,i)=>{ const x=px(i), yy=py(v); if(i===0) ctx2.moveTo(x,yy); else ctx2.lineTo(x,yy); });
+    ctx2.strokeStyle = '#d9502b'; ctx2.lineWidth = 1.6; ctx2.stroke();
+
+    // current epoch marker
+    const i = state.epochIdx;
+    ctx2.strokeStyle = 'rgba(238,241,246,0.5)'; ctx2.lineWidth=1;
+    ctx2.beginPath(); ctx2.moveTo(px(i),8); ctx2.lineTo(px(i),ch-4); ctx2.stroke();
+    ctx2.fillStyle = '#eef1f6';
+    ctx2.beginPath(); ctx2.arc(px(i), py(vals[i]), 3.5, 0, 2*Math.PI); ctx2.fill();
+
+    document.getElementById('sparkMin').textContent = epochsView[0] + ' · ' + fmtNum(vals[0]) + ' nT';
+    document.getElementById('sparkMax').textContent = epochsView[epochsView.length-1] + ' · ' + fmtNum(vals[vals.length-1]) + ' nT';
+    document.getElementById('sparkTitle').textContent = `SAA minimum field, ${epochsView[0]}–${epochsView[epochsView.length-1]}`;
+  }
+
+  // ---------- probe helper ----------
+  function nearestGridIdx(lon, lat){
+    let lo = Math.round((lon+180)/4);
+    lo = Math.max(0, Math.min(lonN-1, lo));
+    let li = Math.round((lat+88)/4);
+    li = Math.max(0, Math.min(latN-1, li));
+    return [li, lo];
+  }
+  function probeAt(lon, lat){
+    // the crosshair marks the exact point clicked/searched -- only the readout values
+    // below are pulled from the nearest 4° data grid cell, since that's the data's real resolution
+    const [li,lo] = nearestGridIdx(lon,lat);
+    const yEp = epochs[state.epochIdx];
+    const i = idx(li,lo);
+    const f = D.F[yEp][i], d = D.D[yEp][i], sv = D.dFdt[yEp][i];
+    const c = meta.saa_center[yEp];
+    const dist = haversine(lon,lat,c[0],c[1]);
+    state.probe = { lon, lat };
+    document.getElementById('probeBox').hidden = false;
+    document.getElementById('pLL').textContent = `${lat.toFixed(1)}°, ${lon.toFixed(1)}° (grid: ${lats[li].toFixed(0)}°, ${lons[lo].toFixed(0)}°)`;
+    document.getElementById('pF').textContent = fmtNum(f) + ' nT';
+    document.getElementById('pD').textContent = (d>=0?'+':'') + d.toFixed(1) + '° (' + (d>=0?'E':'W') + ')';
+    document.getElementById('pSV').textContent = (sv>=0?'+':'') + sv.toFixed(1) + ' nT/yr';
+    document.getElementById('pDist').textContent = fmtNum(dist) + ' km';
+    render();
+  }
+
+  // ================= 3D GLOBE =================
+  // Lon/lat <-> 3D is defined once, here, and used for BOTH the custom UVs we paint onto the
+  // sphere AND the inverse read-back from raycasting — so the two are guaranteed consistent
+  // (no dependence on guessing Three.js's internal sphere UV convention).
+  const DEG = Math.PI/180;
+  // note the negated z term: with the camera's up=+Y, world -Z is screen-right, so without
+  // this flip increasing longitude (east) walked the texture toward screen-left — a mirror image.
+  function lonLatToVec3(lonDeg, latDeg, r){
+    const lat = latDeg*DEG, lon = lonDeg*DEG;
+    return new THREE.Vector3(
+      r*Math.cos(lat)*Math.cos(lon),
+      r*Math.sin(lat),
+      -r*Math.cos(lat)*Math.sin(lon)
+    );
+  }
+  function vec3ToLonLat(p){
+    const r = p.length();
+    const lat = Math.asin(Math.max(-1,Math.min(1,p.y/r))) / DEG;
+    const lon = Math.atan2(-p.z, p.x) / DEG;
+    return [lon, lat];
+  }
+
+  const globeHost = document.getElementById('globeHost');
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  globeHost.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  // near must stay well under (MIN_DIST - sphere radius 1) = 0.03, or the near-facing surface
+  // gets clipped at close zoom and the visible "rim" remainder renders as garbled/wrong-looking
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.008, 100);
+
+  // custom UVs matching lonLatToVec3/vec3ToLonLat exactly. Higher segment count than a typical
+  // globe demo needs, because close-in zoom (see MIN_DIST below) gets near enough to the surface
+  // that coarse faceting would otherwise show.
+  const sphereGeo = new THREE.SphereGeometry(1, 192, 128);
+  {
+    const pos = sphereGeo.attributes.position;
+    const uv = sphereGeo.attributes.uv;
+    for (let i=0;i<pos.count;i++){
+      const [lon,lat] = vec3ToLonLat(new THREE.Vector3(pos.getX(i),pos.getY(i),pos.getZ(i)));
+      uv.setXY(i, (lon+180)/360, (90-lat)/180);
+    }
+    uv.needsUpdate = true;
+  }
+  const texture = new THREE.CanvasTexture(texCanvas);
+  texture.flipY = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.RepeatWrapping; // smooth seam at the +-180 meridian
+  const globeMat = new THREE.MeshBasicMaterial({ map: texture });
+  const globeMesh = new THREE.Mesh(sphereGeo, globeMat);
+  scene.add(globeMesh);
+
+  // atmosphere rim glow
+  const glowGeo = new THREE.SphereGeometry(1.035, 64, 48);
+  const glowMat = new THREE.ShaderMaterial({
+    uniforms: { glowColor: { value: new THREE.Color(0x2bc3a8) } },
+    vertexShader: `varying vec3 vNormal; void main(){ vNormal = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec3 vNormal; uniform vec3 glowColor; void main(){ float i = pow(0.68 - dot(vNormal, vec3(0.0,0.0,1.0)), 2.5); gl_FragColor = vec4(glowColor, clamp(i,0.0,1.0)*0.55); }`,
+    side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite:false,
+  });
+  scene.add(new THREE.Mesh(glowGeo, glowMat));
+
+  // starfield
+  {
+    const n = 1400;
+    const pts = new Float32Array(n*3);
+    for (let i=0;i<n;i++){
+      const r = 16 + Math.random()*20;
+      const u = Math.random()*2-1, th = Math.random()*2*Math.PI;
+      const s = Math.sqrt(1-u*u);
+      pts[i*3] = r*s*Math.cos(th); pts[i*3+1] = r*u; pts[i*3+2] = r*s*Math.sin(th);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(pts,3));
+    const starMat = new THREE.PointsMaterial({ color:0x8d98ab, size:0.045, sizeAttenuation:true, transparent:true, opacity:0.55 });
+    scene.add(new THREE.Points(starGeo, starMat));
+  }
+
+  // ---- close-zoom vector isogonic lines ----
+  // Baked texture lines fundamentally can't stay crisp at unlimited zoom -- a 4096px-wide global
+  // texture is only ~11px per degree, so a city-scale view would show a dozen blurry pixels, not
+  // a line. Below VECTOR_ZOOM_DIST we instead draw true GPU line geometry, computed fresh from the
+  // CHAOS composite model (degree 185, real crustal-scale detail, not just core-field
+  // interpolation) for whatever region is actually in view -- genuinely crisp at any zoom, and
+  // genuinely more detailed, not just more magnified.
+  const vectorLineMat = new THREE.LineBasicMaterial({ color: 0xeef1f6, transparent:true, opacity:0.9 });
+  const vectorLines = new THREE.LineSegments(new THREE.BufferGeometry(), vectorLineMat);
+  vectorLines.visible = false;
+  scene.add(vectorLines);
+
+  // same fix for coastlines/borders: the texture goes soft at this zoom no matter how high its
+  // resolution, but we already have this as real vector line data (Natural Earth 1:10m) -- small
+  // enough (~70k points total) to build as static geometry once, so no per-pan recompute needed.
+  function polylinesToSegPositions(polylines, r){
+    const positions = [];
+    for (const line of polylines){
+      for (let i=0;i<line.length-1;i++){
+        const p0 = lonLatToVec3(line[i][0], line[i][1], r);
+        const p1 = lonLatToVec3(line[i+1][0], line[i+1][1], r);
+        positions.push(p0.x,p0.y,p0.z, p1.x,p1.y,p1.z);
+      }
+    }
+    return positions;
+  }
+  // always on, at every zoom -- these are small enough (~70k points) to just build once and leave
+  // visible; no reason to gate real vector data behind a zoom threshold.
+  const vectorCoastGeo = new THREE.BufferGeometry();
+  vectorCoastGeo.setAttribute('position', new THREE.Float32BufferAttribute(polylinesToSegPositions(COUNTRIES.coast, 1.0008), 3));
+  const vectorCoast = new THREE.LineSegments(vectorCoastGeo, new THREE.LineBasicMaterial({ color:0xeef1f6, transparent:true, opacity:0.85 }));
+  scene.add(vectorCoast);
+  const vectorBorderGeo = new THREE.BufferGeometry();
+  vectorBorderGeo.setAttribute('position', new THREE.Float32BufferAttribute(polylinesToSegPositions(COUNTRIES.borders, 1.0005), 3));
+  const vectorBorders = new THREE.LineSegments(vectorBorderGeo, new THREE.LineBasicMaterial({ color:0xeef1f6, transparent:true, opacity:0.4 }));
+  scene.add(vectorBorders);
+
+  // graticule -- also real vector lines now, not baked into the texture
+  {
+    function addArcInto(arr, points){ for (let i=0;i<points.length-1;i++){ const a=points[i], b=points[i+1]; arr.push(a.x,a.y,a.z, b.x,b.y,b.z); } }
+    const gratPos = [];
+    for (let lon=-180; lon<180; lon+=30){
+      const pts = []; for (let lat=-88; lat<=88; lat+=4) pts.push(lonLatToVec3(lon, lat, 1.0002));
+      addArcInto(gratPos, pts);
+    }
+    for (let lat=-60; lat<=60; lat+=30){
+      const pts = []; for (let lon=-180; lon<=180; lon+=4) pts.push(lonLatToVec3(lon, lat, 1.0002));
+      addArcInto(gratPos, pts);
+    }
+    const gratGeo = new THREE.BufferGeometry();
+    gratGeo.setAttribute('position', new THREE.Float32BufferAttribute(gratPos, 3));
+    scene.add(new THREE.LineSegments(gratGeo, new THREE.LineBasicMaterial({ color:0x8d98ab, transparent:true, opacity:0.22 })));
+
+    const eqPts = []; for (let lon=-180; lon<=180; lon+=4) eqPts.push(lonLatToVec3(lon, 0, 1.0003));
+    const eqPos = []; addArcInto(eqPos, eqPts);
+    const eqGeo = new THREE.BufferGeometry();
+    eqGeo.setAttribute('position', new THREE.Float32BufferAttribute(eqPos, 3));
+    scene.add(new THREE.LineSegments(eqGeo, new THREE.LineBasicMaterial({ color:0x8d98ab, transparent:true, opacity:0.4 })));
+  }
+
+  // ---- dynamic vector layers: main isogonic/isodynamic contours + SAA/pole tracks + satellite pass ----
+  function segsToPositionsR(segs, r){
+    const positions = [];
+    for (const seg of segs){
+      const p0 = lonLatToVec3(seg[0][0], seg[0][1], r);
+      const p1 = lonLatToVec3(seg[1][0], seg[1][1], r);
+      positions.push(p0.x,p0.y,p0.z, p1.x,p1.y,p1.z);
+    }
+    return positions;
+  }
+  function setGeo(mesh, positions){
+    mesh.geometry.dispose();
+    mesh.geometry = new THREE.BufferGeometry();
+    mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  }
+  // the one line each layer treats as the primary reference (0 declination / 22,000 nT) is drawn
+  // as an actual flat ribbon, not a THREE.Line -- most GPU drivers (ANGLE/Chrome included) just
+  // ignore LineBasicMaterial.linewidth and render every line at 1px, so a genuinely thicker stroke
+  // needs real triangles. Built in the sphere's local tangent plane at each segment so it hugs the
+  // surface exactly like the hairline contours do.
+  function ribbonPositions(segs, r, halfWidthWorld){
+    const positions = [];
+    for (const seg of segs){
+      const p0 = lonLatToVec3(seg[0][0], seg[0][1], r);
+      const p1 = lonLatToVec3(seg[1][0], seg[1][1], r);
+      const dir = new THREE.Vector3().subVectors(p1, p0);
+      if (dir.lengthSq() < 1e-10) continue;
+      dir.normalize();
+      const normal = p0.clone().normalize();
+      const perp = new THREE.Vector3().crossVectors(dir, normal);
+      if (perp.lengthSq() < 1e-10) continue;
+      perp.normalize().multiplyScalar(halfWidthWorld);
+      const a0 = p0.clone().add(perp), a1 = p0.clone().sub(perp);
+      const b0 = p1.clone().add(perp), b1 = p1.clone().sub(perp);
+      positions.push(a0.x,a0.y,a0.z, b0.x,b0.y,b0.z, a1.x,a1.y,a1.z);
+      positions.push(a1.x,a1.y,a1.z, b0.x,b0.y,b0.z, b1.x,b1.y,b1.z);
+    }
+    return positions;
+  }
+  function setGeoTris(mesh, positions){
+    mesh.geometry.dispose();
+    mesh.geometry = new THREE.BufferGeometry();
+    mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  }
+  // a small, zoom-adaptive fraction of the current view, so the emphasised line reads as a
+  // deliberately heavier stroke at any zoom instead of a fixed world-space width that would be
+  // imperceptible zoomed out or a fat slab zoomed in close
+  function emphWidthWorld(){
+    return Math.max(0.00028, visibleSpanDeg(cam.dist, camera.fov) * DEG * 0.0022);
+  }
+  const mainContourMat = new THREE.LineBasicMaterial({ color:0xeef1f6, transparent:true, opacity:0.55 });
+  const mainContour = new THREE.LineSegments(new THREE.BufferGeometry(), mainContourMat);
+  scene.add(mainContour);
+  const mainContourEmphMat = new THREE.MeshBasicMaterial({ color:0x5ab8ff, side:THREE.DoubleSide });
+  const mainContourEmph = new THREE.Mesh(new THREE.BufferGeometry(), mainContourEmphMat);
+  scene.add(mainContourEmph);
+
+  const saaTrackLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color:0xd9502b }));
+  scene.add(saaTrackLine);
+  const poleTrackLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color:0x19997f }));
+  scene.add(poleTrackLine);
+
+  const passTrackGeo = new THREE.BufferGeometry();
+  { const pos=[]; for (const pass of PASS.passes){ const pts=pass.map(p=>lonLatToVec3(p[2],p[1],1.0017)); for (let i=0;i<pts.length-1;i++) pos.push(pts[i].x,pts[i].y,pts[i].z, pts[i+1].x,pts[i+1].y,pts[i+1].z); }
+    passTrackGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); }
+  const passTrack = new THREE.LineSegments(passTrackGeo, new THREE.LineBasicMaterial({ color:0x5ab8ff, transparent:true, opacity:0.9 }));
+  passTrack.visible = false;
+  scene.add(passTrack);
+
+  // probe crosshair -- real geometry (not a texture dot), so it stays a crisp, small mark at
+  // any zoom instead of a baked-in blob that either disappears zoomed out or balloons zoomed in.
+  // Its angular size tracks the currently visible arc (see visibleSpanDeg) so it reads as a
+  // small, constant fraction of the view rather than a fixed degree size.
+  const probeMarker = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color:0x5ab8ff, transparent:true, opacity:0.95, depthTest:false }));
+  probeMarker.visible = false;
+  probeMarker.renderOrder = 10;
+  scene.add(probeMarker);
+  function updateProbeMarker(){
+    if (!state.probe){ probeMarker.visible = false; return; }
+    probeMarker.visible = true;
+    const { lon, lat } = state.probe;
+    const r = 1.0018;
+    const rDeg = Math.max(0.12, visibleSpanDeg(cam.dist, camera.fov) * 0.03);
+    const lonScale = 1 / Math.max(0.12, Math.cos(lat*DEG));
+    const pt = (mult, axis) => lonLatToVec3(
+      lon + (axis==='lon' ? rDeg*lonScale*mult : 0),
+      lat + (axis==='lat' ? rDeg*mult : 0), r);
+    const pos = [];
+    const N = 24;
+    let prev = null;
+    for (let i=0;i<=N;i++){
+      const a = (i/N)*2*Math.PI;
+      const p = lonLatToVec3(lon + Math.cos(a)*rDeg*lonScale, lat + Math.sin(a)*rDeg, r);
+      if (prev) pos.push(prev.x,prev.y,prev.z, p.x,p.y,p.z);
+      prev = p;
+    }
+    for (const [axis, a, b] of [['lon',1.3,2.1],['lon',-1.3,-2.1],['lat',1.3,2.1],['lat',-1.3,-2.1]]){
+      const p0 = pt(a,axis), p1 = pt(b,axis);
+      pos.push(p0.x,p0.y,p0.z, p1.x,p1.y,p1.z);
+    }
+    probeMarker.geometry.dispose();
+    probeMarker.geometry = new THREE.BufferGeometry();
+    probeMarker.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  }
+
+  function updateVectorLayers(tier){
+    const y = epochs[state.epochIdx];
+
+    // contours
+    const arrFor = state.layer==='decl' ? D.D0[y] : D.F[y];
+    const emphLevel = EMPHASIS[state.layer];
+    const hue = state.layer==='field' ? 0xffd9a0 : 0xeef1f6;
+    mainContourMat.color.setHex(hue);
+    const pos = [];
+    let emphSegs = [];
+    for (const lvl of contourLevelsFor(state.layer, tier)){
+      const segs = marchingSquares(arrFor, lvl);
+      if (!segs.length) continue;
+      if (lvl === emphLevel) emphSegs = emphSegs.concat(segs);
+      else pos.push(...segsToPositionsR(segs, 1.0011));
+    }
+    setGeo(mainContour, pos);
+    setGeoTris(mainContourEmph, ribbonPositions(emphSegs, 1.0013, emphWidthWorld()));
+
+    // SAA track (grows with epoch)
+    {
+      const pts = [];
+      for (let i=0;i<=state.epochIdx;i++){ const c = meta.saa_center[epochs[i]]; pts.push(lonLatToVec3(c[0],c[1],1.0014)); }
+      const p2 = []; for (const pt of pts) p2.push(pt.x,pt.y,pt.z);
+      saaTrackLine.geometry.dispose(); saaTrackLine.geometry = new THREE.BufferGeometry();
+      saaTrackLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(p2,3));
+    }
+    // pole track (up to current year)
+    {
+      const npPts = POLE.north;
+      const pts = [];
+      for (const pp of npPts){ if (pp[2] < 1900 || pp[2] > y) continue; pts.push(lonLatToVec3(pp[0],pp[1],1.0015)); }
+      const p2 = []; for (const pt of pts) p2.push(pt.x,pt.y,pt.z);
+      poleTrackLine.geometry.dispose(); poleTrackLine.geometry = new THREE.BufferGeometry();
+      poleTrackLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(p2,3));
+    }
+
+    passTrack.visible = state.showPass && state.layer==='field';
+  }
+  const vectorLineMatEmph = new THREE.MeshBasicMaterial({ color: 0x5ab8ff, side:THREE.DoubleSide });
+  const vectorLinesEmph = new THREE.Mesh(new THREE.BufferGeometry(), vectorLineMatEmph);
+  vectorLinesEmph.visible = false;
+  scene.add(vectorLinesEmph);
+
+  function chaosFineMarchingSquaresWindow(threshold, li0, li1, lo0, lo1){
+    const lats = CHAOSFINE.meta.lats, lons = CHAOSFINE.meta.lons;
+    const lonN = lons.length;
+    const arr = CHAOSFINE.D;
+    const segs = [];
+    for (let li=li0; li<=li1; li++){
+      for (let lo=lo0; lo<=lo1; lo++){
+        const tl = arr[(li+1)*lonN+lo], tr = arr[(li+1)*lonN+lo+1];
+        const br = arr[li*lonN+lo+1], bl = arr[li*lonN+lo];
+        const cTL=tl>threshold, cTR=tr>threshold, cBR=br>threshold, cBL=bl>threshold;
+        const code = (cTL?1:0)|(cTR?2:0)|(cBR?4:0)|(cBL?8:0);
+        if (code===0||code===15) continue;
+        const lat0=lats[li], lat1=lats[li+1], lon0=lons[lo], lon1=lons[lo+1];
+        function onTop(){ const f=(threshold-tl)/(tr-tl); return [lon0+(lon1-lon0)*f, lat1]; }
+        function onBottom(){ const f=(threshold-bl)/(br-bl); return [lon0+(lon1-lon0)*f, lat0]; }
+        function onLeft(){ const f=(threshold-bl)/(tl-bl); return [lon0, lat0+(lat1-lat0)*f]; }
+        function onRight(){ const f=(threshold-br)/(tr-br); return [lon1, lat0+(lat1-lat0)*f]; }
+        const pairs = {1:[onLeft,onTop],2:[onTop,onRight],3:[onLeft,onRight],4:[onRight,onBottom],6:[onTop,onBottom],7:[onLeft,onBottom],8:[onBottom,onLeft],9:[onTop,onBottom],11:[onRight,onBottom],12:[onLeft,onRight],13:[onTop,onRight],14:[onTop,onLeft]};
+        if (code===5){ segs.push([onLeft(),onTop()]); segs.push([onRight(),onBottom()]); continue; }
+        if (code===10){ segs.push([onTop(),onRight()]); segs.push([onBottom(),onLeft()]); continue; }
+        const fns = pairs[code];
+        if (fns) segs.push([fns[0](), fns[1]()]);
+      }
+    }
+    return segs;
+  }
+
+  function segsToPositions(segs){
+    const positions = [];
+    for (const seg of segs){
+      const p0 = lonLatToVec3(seg[0][0], seg[0][1], 1.0015);
+      const p1 = lonLatToVec3(seg[1][0], seg[1][1], 1.0015);
+      positions.push(p0.x,p0.y,p0.z, p1.x,p1.y,p1.z);
+    }
+    return positions;
+  }
+
+  function updateVectorContours(){
+    const lats = CHAOSFINE.meta.lats, lons = CHAOSFINE.meta.lons;
+    const latN = lats.length, lonN = lons.length;
+    // generous relative to the true visible arc at this zoom range (~1.3-6.6 deg) so panning
+    // doesn't need an instant recompute, without computing a wastefully huge area
+    const halfSpan = 9;
+    const latMin = Math.max(-88, cam.lat-halfSpan), latMax = Math.min(88, cam.lat+halfSpan);
+    const lonMin = Math.max(-180, cam.lon-halfSpan), lonMax = Math.min(180, cam.lon+halfSpan);
+
+    let li0 = lats.findIndex(v=>v>=latMin); li0 = Math.max(0, li0-1);
+    let li1 = lats.findIndex(v=>v>=latMax); li1 = li1<0 ? latN-2 : Math.min(latN-2, li1);
+    let lo0 = lons.findIndex(v=>v>=lonMin); lo0 = Math.max(0, lo0-1);
+    let lo1 = lons.findIndex(v=>v>=lonMax); lo1 = lo1<0 ? lonN-2 : Math.min(lonN-2, lo1);
+    if (li1 <= li0 || lo1 <= lo0) return;
+
+    let localMin=Infinity, localMax=-Infinity;
+    for (let li=li0; li<=li1+1; li++)
+      for (let lo=lo0; lo<=lo1+1; lo++){
+        const v = CHAOSFINE.D[li*lonN+lo];
+        if (v<localMin) localMin=v; if (v>localMax) localMax=v;
+      }
+    if (localMax-localMin > 150) return; // pole-adjacent wraparound garbage, skip
+
+    const step = 0.25;
+    const positions = [];
+    let emphSegs = [];
+    for (let v=Math.floor(localMin/step)*step; v<=localMax+step; v+=step){
+      const lvl = Math.round(v*100)/100;
+      const segs = chaosFineMarchingSquaresWindow(lvl, li0, li1, lo0, lo1);
+      if (Math.abs(lvl) < step/2) emphSegs = emphSegs.concat(segs);
+      else positions.push(...segsToPositions(segs));
+    }
+    vectorLines.geometry.dispose();
+    vectorLines.geometry = new THREE.BufferGeometry();
+    vectorLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    setGeoTris(vectorLinesEmph, ribbonPositions(emphSegs, 1.0015, emphWidthWorld()));
+  }
+
+  let lastVecLon=null, lastVecLat=null, lastVecLayer=null;
+  function maybeUpdateVectorContours(){
+    const declActive = cam.dist < VECTOR_ZOOM_DIST && !!CHAOSFINE && state.layer==='decl';
+    const flag = document.getElementById('hiresFlag');
+    if (!declActive){
+      if (vectorLines.visible){ vectorLines.visible=false; vectorLinesEmph.visible=false; flag.hidden=true; }
+      lastVecLon = null;
+      return;
+    }
+    vectorLines.visible = true; vectorLinesEmph.visible = true; flag.hidden = false;
+    if (!flag.dataset.set){
+      const asOf = (CHAOSFINE.meta.epoch || '').slice(0, 10);
+      flag.innerHTML = `🔬 <b>High-resolution crustal detail</b>${asOf ? ' — as of ' + asOf : ''}`;
+      flag.dataset.set = '1';
+    }
+    const moved = lastVecLon===null || Math.abs(cam.lon-lastVecLon)>2.5 || Math.abs(cam.lat-lastVecLat)>2.5 || lastVecLayer!==state.layer;
+    if (!moved) return;
+    lastVecLon=cam.lon; lastVecLat=cam.lat; lastVecLayer=state.layer;
+    updateVectorContours();
+  }
+
+  // ---- camera orbit state (spherical, in the same lon/lat convention) ----
+  // MIN_DIST is deliberately close to the sphere's radius (1): at the old 1.4 clamp the closest
+  // possible view still spanned ~17 degrees of arc -- multiple countries, never a single city.
+  // At 1.03 the view can narrow to a couple of degrees, i.e. an actual metro-area footprint.
+  const MIN_DIST = 1.03, MAX_DIST = 5.5;
+  const VECTOR_ZOOM_DIST = 1.15; // closer than this, swap texture-baked isogonic lines for true vector ones
+  const cam = { lon: -30, lat: 15, dist: 2.6, targetLon: -30, targetLat: 15, animating:false };
+  function applyCamera(){
+    const p = lonLatToVec3(cam.lon, cam.lat, cam.dist);
+    camera.position.copy(p);
+    camera.up.set(0,1,0);
+    camera.lookAt(0,0,0);
+  }
+  function shortestDelta(from, to){
+    let d = (to-from) % 360;
+    if (d > 180) d -= 360; if (d < -180) d += 360;
+    return d;
+  }
+  function flyTo(lon, lat){
+    cam.targetLon = cam.lon + shortestDelta(cam.lon, lon);
+    cam.targetLat = lat;
+    cam.animating = true;
+  }
+
+  // degrees of globe surface spanned by a FOV cone of the given full angle, at the given
+  // camera distance (sphere radius 1) -- shrinks fast as the camera nears MIN_DIST, which is
+  // exactly why a fixed degrees-per-pixel drag rate feels calm when zoomed out and violent
+  // zoomed in: the same mouse-pixel distance used to mean ~0.3% of the view and now means
+  // ~10x the whole visible frame. Used to scale both drag sensitivity and the crosshair size.
+  function visibleSpanDeg(dist, fovDeg){
+    const half = (fovDeg/2) * DEG;
+    const s = dist * Math.sin(half);
+    const phi = s >= 1 ? (90*DEG) : (Math.asin(s) - half);
+    return Math.max(0.4, 2*phi/DEG);
+  }
+  function horizontalFovDeg(){
+    return 2*Math.atan(Math.tan((camera.fov/2)*DEG) * camera.aspect) / DEG;
+  }
+
+  // ---- pointer drag / wheel / pinch controls ----
+  let dragging = false, lastX=0, lastY=0, moved=0;
+  globeHost.addEventListener('pointerdown', (e)=>{
+    dragging = true; moved = 0; lastX = e.clientX; lastY = e.clientY;
+    globeHost.classList.add('dragging');
+    globeHost.setPointerCapture(e.pointerId);
+    cam.animating = false;
+  });
+  globeHost.addEventListener('pointermove', (e)=>{
+    if (!dragging) return;
+    const dx = e.clientX-lastX, dy = e.clientY-lastY;
+    moved += Math.abs(dx)+Math.abs(dy);
+    // sensitivity tracks how much globe is actually visible right now, so a given drag
+    // distance always pans roughly the same fraction of the frame, zoomed in or out
+    const w = globeHost.clientWidth || 600, h = globeHost.clientHeight || 600;
+    const lonSens = visibleSpanDeg(cam.dist, horizontalFovDeg()) / w;
+    const latSens = visibleSpanDeg(cam.dist, camera.fov) / h;
+    cam.lon -= dx*lonSens;
+    cam.lat = Math.max(-85, Math.min(85, cam.lat + dy*latSens));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  function endDrag(e){
+    if (!dragging) return;
+    dragging = false; globeHost.classList.remove('dragging');
+    if (moved < 5){
+      const rect = globeHost.getBoundingClientRect();
+      doRaycast((e.clientX-rect.left)/rect.width*2-1, -((e.clientY-rect.top)/rect.height*2-1));
+    }
+  }
+  globeHost.addEventListener('pointerup', endDrag);
+  globeHost.addEventListener('pointercancel', endDrag);
+  // redraw the texture (new resolution + contour density) only when zoom actually crosses
+  // into a new LOD tier -- not on every wheel tick, so a smooth zoom gesture stays cheap.
+  let lodRenderPending = false;
+  function scheduleLODCheck(){
+    if (lodRenderPending) return;
+    lodRenderPending = true;
+    requestAnimationFrame(()=>{
+      lodRenderPending = false;
+      if (lodFor(cam.dist).texW !== TEX_W) render();
+    });
+  }
+
+  globeHost.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    cam.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, cam.dist * (1 + e.deltaY*0.001)));
+    scheduleLODCheck();
+  }, { passive:false });
+
+  // pinch-to-zoom (two-finger touch)
+  let pinchStart = null;
+  globeHost.addEventListener('touchstart', (e)=>{
+    if (e.touches.length===2) pinchStart = { d: touchDist(e), dist: cam.dist };
+  }, { passive:true });
+  globeHost.addEventListener('touchmove', (e)=>{
+    if (e.touches.length===2 && pinchStart){
+      const d = touchDist(e);
+      cam.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, pinchStart.dist * (pinchStart.d/d)));
+      scheduleLODCheck();
+    }
+  }, { passive:true });
+  function touchDist(e){
+    const [a,b] = [e.touches[0], e.touches[1]];
+    return Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+  }
+
+  const raycaster = new THREE.Raycaster();
+  function doRaycast(ndcX, ndcY){
+    raycaster.setFromCamera({x:ndcX, y:ndcY}, camera);
+    const hit = raycaster.intersectObject(globeMesh)[0];
+    if (!hit) return;
+    const [lon, lat] = vec3ToLonLat(hit.point);
+    probeAt(lon, lat);
+  }
+
+  function resizeRenderer(){
+    const w = globeHost.clientWidth, h = globeHost.clientHeight;
+    if (!w || !h) return; // host hidden (e.g. on the Location page) — nothing to size yet
+    renderer.setSize(w, h, false);
+    camera.aspect = w/h;
+    camera.updateProjectionMatrix();
+  }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if (cam.animating){
+      cam.lon += (cam.targetLon-cam.lon)*0.08;
+      cam.lat += (cam.targetLat-cam.lat)*0.08;
+      if (Math.abs(cam.targetLon-cam.lon)<0.05 && Math.abs(cam.targetLat-cam.lat)<0.05) cam.animating=false;
+    }
+    applyCamera();
+    maybeUpdateVectorContours();
+    if (state.probe) updateProbeMarker();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  document.getElementById('focusSAA').addEventListener('click', ()=>{
+    const c = meta.saa_center[epochs[state.epochIdx]];
+    flyTo(c[0], c[1]);
+  });
+  document.getElementById('focusPole').addEventListener('click', ()=>{
+    const npPts = POLE.north;
+    const y = epochs[state.epochIdx];
+    const p = poleAtYear(npPts, Math.min(y, npPts[npPts.length-1][2]));
+    flyTo(p[0], p[1]);
+  });
+
+  // ---------- controls wiring ----------
+  const slider = document.getElementById('epochSlider');
+  slider.max = maxAllowedIdx();
+  slider.value = state.epochIdx;
+  slider.addEventListener('input', ()=>{ state.epochIdx = +slider.value; render(); renderSpark(); });
+
+  const projToggle = document.getElementById('projToggle');
+  projToggle.addEventListener('change', ()=>{
+    state.showProjection = projToggle.checked;
+    slider.max = maxAllowedIdx();
+    if (state.epochIdx > maxAllowedIdx()) { state.epochIdx = maxAllowedIdx(); slider.value = state.epochIdx; }
+    render(); renderSpark();
+  });
+
+  const passToggle = document.getElementById('passToggle');
+  document.querySelectorAll('.layer-tab[data-layer]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.layer-tab[data-layer]').forEach(b=>b.setAttribute('aria-pressed','false'));
+      btn.setAttribute('aria-pressed','true');
+      state.layer = btn.dataset.layer;
+      passToggle.hidden = state.layer !== 'field'; // only a meaningful option on the field layer
+      render();
+    });
+  });
+
+  passToggle.addEventListener('click', ()=>{
+    state.showPass = !state.showPass;
+    passToggle.setAttribute('aria-pressed', String(state.showPass));
+    render();
+  });
+
+  const mapKeyToggle = document.getElementById('mapKeyToggle');
+  const mapKeyEl = document.getElementById('mapKey');
+  mapKeyToggle.addEventListener('click', ()=>{
+    const nowHidden = !mapKeyEl.hidden;
+    mapKeyEl.hidden = nowHidden;
+    mapKeyToggle.textContent = nowHidden ? 'Legend ▸' : 'Legend ▾';
+    mapKeyToggle.setAttribute('aria-expanded', String(!nowHidden));
+  });
+
+  const playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', ()=>{
+    state.playing = !state.playing;
+    playBtn.textContent = state.playing ? '❙❙' : '▶';
+    playBtn.setAttribute('aria-label', state.playing ? 'Pause timelapse' : 'Play timelapse');
+    if (state.playing){
+      playTimer = setInterval(()=>{
+        state.epochIdx = (state.epochIdx+1) % (maxAllowedIdx()+1);
+        slider.value = state.epochIdx;
+        render(); renderSpark();
+      }, 650);
+    } else {
+      clearInterval(playTimer);
+    }
+  });
+
+  window.addEventListener('resize', ()=>{ resizeRenderer(); renderSpark(); });
+
+  resizeRenderer();
+  render();
+  renderSpark();
+
+  // ================= page nav =================
+  document.querySelectorAll('.page-tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.page-tab').forEach(b=>b.setAttribute('aria-pressed','false'));
+      btn.setAttribute('aria-pressed','true');
+      const page = btn.dataset.page;
+      document.getElementById('pageAtlas').hidden = page !== 'atlas';
+      document.getElementById('pageLocation').hidden = page !== 'location';
+      if (page === 'location'){ renderSpark(); renderLocationCharts(); }
+      if (page === 'atlas'){ resizeRenderer(); }
+    });
+  });
+
+  // ================= location history =================
+  const locInput = document.getElementById('locInput');
+  const locDropdown = document.getElementById('locDropdown');
+  const locResult = document.getElementById('locResult');
+  let currentLoc = null; // { name, country, lat, lon }
+
+  function parseCoordInput(s){
+    const m = s.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+    if (!m) return null;
+    const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return { name: 'Custom point', country: '', lat, lon };
+  }
+
+  // zip codes are searched as a prefix match (typing "100" narrows toward "100xx"); anything
+  // else is matched as a city name. All-digit input is unambiguously a zip-code attempt.
+  function searchZips(q){
+    const out = [];
+    for (const row of ZIPS){
+      if (row[0].startsWith(q)){
+        out.push({ label: `${row[1]}, ${row[2]} ${row[0]}`, lat: row[3], lon: row[4], name: row[1], country: row[2] });
+        if (out.length >= 8) break;
+      }
+    }
+    return out;
+  }
+  function searchCities(q){
+    const ql = q.toLowerCase();
+    const starts = [], contains = [];
+    for (const row of CITIES){
+      const nl = row[0].toLowerCase();
+      if (nl.startsWith(ql)) starts.push(row);
+      else if (nl.includes(ql)) contains.push(row);
+      if (starts.length >= 8) break;
+    }
+    return starts.concat(contains).slice(0, 8).map(row =>
+      ({ label: `${row[0]}, ${row[1]}`, lat: row[2], lon: row[3], name: row[0], country: row[1] }));
+  }
+  function searchLocations(q){
+    q = q.trim();
+    if (!q) return [];
+    return /^\d+$/.test(q) ? searchZips(q) : searchCities(q);
+  }
+
+  function renderDropdown(matches){
+    if (!matches.length){ locDropdown.hidden = true; return; }
+    locDropdown.innerHTML = matches.map((m,i)=>
+      `<button type="button" data-i="${i}"><span>${m.label}</span><span>${m.lat.toFixed(1)}°, ${m.lon.toFixed(1)}°</span></button>`
+    ).join('');
+    locDropdown.hidden = false;
+    locDropdown.querySelectorAll('button').forEach((b,i)=>{
+      b.addEventListener('click', ()=>{
+        const m = matches[i];
+        selectLocation(m);
+        locInput.value = m.label;
+        locDropdown.hidden = true;
+      });
+    });
+  }
+
+  locInput.addEventListener('input', ()=>{
+    const coord = parseCoordInput(locInput.value);
+    if (coord){ locDropdown.hidden = true; return; }
+    renderDropdown(searchLocations(locInput.value));
+  });
+  locInput.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter'){
+      const coord = parseCoordInput(locInput.value);
+      if (coord){ selectLocation(coord); locDropdown.hidden = true; }
+      else {
+        const matches = searchLocations(locInput.value);
+        if (matches.length){ selectLocation(matches[0]); locInput.value = matches[0].label; }
+      }
+    }
+  });
+  document.addEventListener('click', (e)=>{
+    if (!e.target.closest('.loc-search-row')) locDropdown.hidden = true;
+  });
+
+  function seriesAt(lat, lon){
+    const [li, lo] = nearestGridIdx(lon, lat);
+    const i = idx(li, lo);
+    return {
+      years: epochs.slice(),
+      F: epochs.map(y => D.F[y][i]),
+      Dv: epochs.map(y => D.D[y][i]),
+      gridLat: lats[li], gridLon: lons[lo],
+    };
+  }
+
+  function selectLocation(loc){
+    currentLoc = loc;
+    renderLocationCharts();
+  }
+
+  function eraColorOf(y){
+    const s = meta.source_of[y];
+    return s==='igrf14' ? '#8f5fcb' : s==='mco_chaos' ? '#19997f' : '#d9502b';
+  }
+
+  function drawTimeSeries(canvasEl, years, vals, opts){
+    const ctx2 = canvasEl.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio||1,2);
+    const cw = canvasEl.clientWidth || 300, ch = 180;
+    canvasEl.width = cw*dpr; canvasEl.height = ch*dpr;
+    ctx2.setTransform(dpr,0,0,dpr,0,0);
+    ctx2.clearRect(0,0,cw,ch);
+
+    // pad the range so the line never touches the frame edge -- a chart where the data
+    // IS the floor/ceiling reads as "this is as extreme as it gets", which isn't true here.
+    const rawMin = Math.min(...vals), rawMax = Math.max(...vals);
+    const rawSpan = (rawMax-rawMin) || Math.abs(rawMax)*0.1 || 1;
+    const vMin = rawMin - rawSpan*0.2, vMax = rawMax + rawSpan*0.2;
+    const span = vMax-vMin;
+    const padL = 42, padR = 10, padT = 10, padB = 20;
+    function px(i){ return padL + i/(years.length-1) * (cw-padL-padR); }
+    function py(v){ return ch-padB - (v-vMin)/span * (ch-padT-padB); }
+
+    // grid + y labels
+    ctx2.strokeStyle = 'rgba(141,152,171,0.14)'; ctx2.lineWidth = 1;
+    ctx2.fillStyle = 'rgba(141,152,171,0.7)'; ctx2.font = '10px IBM Plex Mono, monospace';
+    for (let g=0; g<=3; g++){
+      const v = vMin + span*g/3;
+      const yy = py(v);
+      ctx2.beginPath(); ctx2.moveTo(padL,yy); ctx2.lineTo(cw-padR,yy); ctx2.stroke();
+      ctx2.fillText(opts.fmt(v), 2, yy+3);
+    }
+    // zero line if diverging
+    if (opts.zero && vMin<0 && vMax>0){
+      ctx2.strokeStyle = 'rgba(238,241,246,0.35)';
+      ctx2.beginPath(); ctx2.moveTo(padL,py(0)); ctx2.lineTo(cw-padR,py(0)); ctx2.stroke();
+    }
+
+    // forecast divider (first predicted year)
+    const predIdx = years.findIndex(y=>meta.source_of[y]==='igrf14_predicted');
+    if (predIdx > 0){
+      const xx = px(predIdx);
+      ctx2.save();
+      ctx2.setLineDash([3,3]);
+      ctx2.strokeStyle = 'rgba(238,241,246,0.4)'; ctx2.lineWidth = 1;
+      ctx2.beginPath(); ctx2.moveTo(xx,padT); ctx2.lineTo(xx,ch-padB); ctx2.stroke();
+      ctx2.restore();
+      ctx2.fillStyle = 'rgba(141,152,171,0.7)';
+      ctx2.fillText('forecast →', xx+4, padT+9);
+    }
+
+    // line, coloured by era per-segment
+    for (let i=0;i<years.length-1;i++){
+      ctx2.strokeStyle = eraColorOf(years[i+1]);
+      ctx2.lineWidth = 1.8;
+      ctx2.beginPath();
+      ctx2.moveTo(px(i), py(vals[i]));
+      ctx2.lineTo(px(i+1), py(vals[i+1]));
+      ctx2.stroke();
+    }
+    // endpoint marker
+    const last = vals.length-1;
+    ctx2.fillStyle = eraColorOf(years[last]);
+    ctx2.beginPath(); ctx2.arc(px(last), py(vals[last]), 3.5, 0, 2*Math.PI); ctx2.fill();
+
+    // x labels (first, last-observed, last)
+    ctx2.fillStyle = 'rgba(141,152,171,0.7)';
+    ctx2.fillText(String(years[0]), padL, ch-5);
+    ctx2.textAlign = 'right';
+    ctx2.fillText(String(years[last]), cw-padR, ch-5);
+    ctx2.textAlign = 'left';
+  }
+
+  function renderLocationCharts(){
+    if (!currentLoc){
+      locResult.innerHTML = '<div class="loc-empty">Search above to see a location\'s magnetic history.</div>';
+      return;
+    }
+    const loc = currentLoc;
+    const s = seriesAt(loc.lat, loc.lon);
+    const lastObsIdx = s.years.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos') >= 0
+      ? s.years.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos')
+      : s.years.length-1;
+
+    const dF = s.F[lastObsIdx] - s.F[0];
+    const dD = s.Dv[lastObsIdx] - s.Dv[0];
+    const everBelow = Math.min(...s.F) < 22000;
+    let crossYear = null;
+    if (everBelow){ const ci = s.F.findIndex(v=>v<22000); crossYear = s.years[ci]; }
+    const c = meta.saa_center[s.years[lastObsIdx]];
+    const distSAA = haversine(loc.lon, loc.lat, c[0], c[1]);
+
+    locResult.innerHTML = `
+      <div class="loc-head">
+        <h2>${loc.name}${loc.country?', '+loc.country:''}</h2>
+        <span class="coords">${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° &nbsp;·&nbsp; sampled at nearest grid node ${s.gridLat.toFixed(0)}°, ${s.gridLon.toFixed(0)}°</span>
+      </div>
+      <div class="loc-stats">
+        <div class="stat">
+          <div class="label">Field intensity, ${s.years[0]}→${s.years[lastObsIdx]}</div>
+          <div class="value">${dF<=0?'↓':'↑'} ${fmtNum(Math.abs(dF))} nT</div>
+          <div class="delta ${dF<=0?'down':'up'}">${fmtNum(s.F[0])} → ${fmtNum(s.F[lastObsIdx])} nT observed</div>
+        </div>
+        <div class="stat">
+          <div class="label">Declination drift, ${s.years[0]}→${s.years[lastObsIdx]}</div>
+          <div class="value">${dD>=0?'+':''}${dD.toFixed(1)}°</div>
+          <div class="delta">${s.Dv[0].toFixed(1)}° → ${s.Dv[lastObsIdx].toFixed(1)}° (compass has swung ${Math.abs(dD).toFixed(1)}°)</div>
+        </div>
+        <div class="stat">
+          <div class="label">SAA risk boundary (&lt;22,000 nT)</div>
+          <div class="value">${everBelow ? 'Entered '+crossYear : 'Never crossed'}</div>
+          <div class="delta">${fmtNum(distSAA)} km from today's anomaly centre</div>
+        </div>
+      </div>
+      <div class="loc-charts">
+        <div class="loc-chart-card">
+          <h3>Total field intensity (F)</h3>
+          <canvas class="loc-canvas" id="locChartF"></canvas>
+          <div class="loc-chart-legend">
+            <span><span class="sw" style="background:#8f5fcb"></span>IGRF-14 historical</span>
+            <span><span class="sw" style="background:#19997f"></span>Swarm / CHAOS measured</span>
+            <span><span class="sw" style="background:#d9502b"></span>IGRF-14 forecast</span>
+          </div>
+        </div>
+        <div class="loc-chart-card">
+          <h3>Declination (D)</h3>
+          <canvas class="loc-canvas" id="locChartD"></canvas>
+          <div class="loc-chart-legend">
+            <span>Positive = east of true north, negative = west</span>
+          </div>
+        </div>
+      </div>
+    `;
+    drawTimeSeries(document.getElementById('locChartF'), s.years, s.F, { fmt:v=>fmtNum(v), zero:false });
+    drawTimeSeries(document.getElementById('locChartD'), s.years, s.Dv, { fmt:v=>v.toFixed(0)+'°', zero:true });
+  }
+
+  // default example so the page isn't empty on first view
+  selectLocation({ name:'Rio de Janeiro', country:'BR', lat:-22.908, lon:-43.196 });
+})();
+</script>
+</body>
+</html>
