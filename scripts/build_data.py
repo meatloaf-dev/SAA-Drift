@@ -41,7 +41,7 @@ _MIN_INTERVAL = 0.4  # seconds between requests -- the run that failed fired ~14
                       # public API and likely fixes a self-inflicted overload, not just a fluke
 
 
-def vires_eval(model_id, timestamps, lats, lons, radii, retries=8):
+def vires_eval(model_id, timestamps, lats, lons, radii, retries=12):
     wait_for_slot = _MIN_INTERVAL - (time.time() - _last_request_t[0])
     if wait_for_slot > 0:
         time.sleep(wait_for_slot)
