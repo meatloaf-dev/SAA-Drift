@@ -35,7 +35,17 @@ SOURCE_OF.update({y: "igrf14_predicted" for y in EPOCHS_PRED})
 MODEL_OF = {"igrf14": "IGRF", "mco_chaos": "MCO_SHA_2X", "igrf14_predicted": "IGRF"}
 
 
+_last_request_t = [0.0]
+_MIN_INTERVAL = 0.4  # seconds between requests -- the run that failed fired ~140 requests back
+                      # to back and got a run of 502s; pacing them is both kinder to a shared
+                      # public API and likely fixes a self-inflicted overload, not just a fluke
+
+
 def vires_eval(model_id, timestamps, lats, lons, radii, retries=8):
+    wait_for_slot = _MIN_INTERVAL - (time.time() - _last_request_t[0])
+    if wait_for_slot > 0:
+        time.sleep(wait_for_slot)
+    _last_request_t[0] = time.time()
     payload = {"Timestamp": timestamps, "Latitude": lats, "Longitude": lons, "Radius": radii}
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <wps:Execute xmlns:wps="http://www.opengis.net/wps/1.0.0" xmlns:ows="http://www.opengis.net/ows/1.1" service="WPS" version="1.0.0">
