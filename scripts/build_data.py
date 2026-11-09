@@ -35,7 +35,7 @@ SOURCE_OF.update({y: "igrf14_predicted" for y in EPOCHS_PRED})
 MODEL_OF = {"igrf14": "IGRF", "mco_chaos": "MCO_SHA_2X", "igrf14_predicted": "IGRF"}
 
 
-def vires_eval(model_id, timestamps, lats, lons, radii, retries=4):
+def vires_eval(model_id, timestamps, lats, lons, radii, retries=8):
     payload = {"Timestamp": timestamps, "Latitude": lats, "Longitude": lons, "Radius": radii}
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <wps:Execute xmlns:wps="http://www.opengis.net/wps/1.0.0" xmlns:ows="http://www.opengis.net/ows/1.1" service="WPS" version="1.0.0">
@@ -58,8 +58,10 @@ def vires_eval(model_id, timestamps, lats, lons, radii, retries=4):
         except (urllib.error.URLError, urllib.error.HTTPError) as e:
             if attempt == retries - 1:
                 raise
-            wait = 3 * (attempt + 1)
-            print(f"  retry {attempt+1} after {e}; waiting {wait}s", file=sys.stderr)
+            # exponential backoff, capped -- VirES has occasional brief 502/503 blips
+            # (an actual outage, not a bad request) that can outlast a short retry window
+            wait = min(60, 2 ** (attempt + 1))
+            print(f"  retry {attempt+1}/{retries-1} after {e}; waiting {wait}s", file=sys.stderr)
             time.sleep(wait)
 
 
