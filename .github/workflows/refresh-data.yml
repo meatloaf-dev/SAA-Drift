@@ -21,26 +21,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # every run from a GitHub-hosted runner has so far been answered with 502 by VirES
-      # while the identical request from elsewhere succeeds. This step records what the
-      # runner actually sees (egress IP, status, response headers -- never the token) so
-      # the cause can be read straight out of the job log.
+      # A cheap authenticated call before the 17-minute rebuild, with a plain-language
+      # verdict in the log. Never prints the token itself. The secret may be either the bare
+      # token or a pasted "Authorization: Bearer <token>" line -- both are accepted.
       - name: Preflight VirES connectivity (diagnostics)
         env:
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
         run: |
+          t="$(printf '%s' "$VIRES_TOKEN" | sed -E 's/^[[:space:]]*(Authorization:[[:space:]]*)?(Bearer[[:space:]]+)?//I; s/[[:space:]"'"'"']+$//')"
           echo "egress IP: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
-          echo "token length: ${#VIRES_TOKEN}"
-          for opts in "" "-4" "--http1.1" "-4 --http1.1"; do
-            printf 'GetCapabilities %-16s -> ' "[$opts]"
-            curl -sS $opts --max-time 30 -o /dev/null \
-              -w 'HTTP %{http_code} via HTTP/%{http_version} remote %{remote_ip}\n' \
-              -H "Authorization: Bearer $VIRES_TOKEN" \
-              'https://vires.services/ows?service=WPS&request=GetCapabilities' || echo "curl failed"
-          done
-          echo "--- response headers (GetCapabilities) ---"
-          curl -sS --max-time 30 -D - -o /dev/null -H "Authorization: Bearer $VIRES_TOKEN" \
-            'https://vires.services/ows?service=WPS&request=GetCapabilities' || true
+          echo "secret length: ${#VIRES_TOKEN}, token length after normalising: ${#t}"
+          code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $t" \
+            'https://vires.services/ows?service=WPS&request=GetCapabilities' || echo 000)
+          echo "GetCapabilities -> HTTP $code"
+          case "$code" in
+            200) echo "VirES reachable and the token is accepted." ;;
+            401|403) echo "::error::VirES rejected the token. Re-enter the VIRES_TOKEN secret with ONLY the token value from vires.services (no 'Authorization:' or 'Bearer')."; exit 1 ;;
+            000) echo "::error::Could not reach vires.services from this runner."; exit 1 ;;
+            *) echo "::warning::Unexpected status $code from VirES; continuing, the build will retry." ;;
+          esac
 
       - name: Rebuild data from VirES (stdlib-only, no dependencies to install)
         env:

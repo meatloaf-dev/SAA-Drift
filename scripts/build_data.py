@@ -19,9 +19,22 @@ import urllib.error
 import urllib.request
 
 VIRES_URL = "https://vires.services/ows"
-TOKEN = os.environ.get("VIRES_TOKEN")
+
+
+def normalize_token(raw):
+    """Accept the bare token, or a pasted 'Authorization: Bearer <token>' header line."""
+    t = (raw or "").strip().strip("'\"")
+    for prefix in ("authorization:", "bearer"):
+        if t.lower().startswith(prefix):
+            t = t[len(prefix):].strip().strip("'\"")
+    return t
+
+
+TOKEN = normalize_token(os.environ.get("VIRES_TOKEN"))
 if not TOKEN:
     sys.exit("VIRES_TOKEN is not set")
+if len(TOKEN) < 16 or any(c.isspace() for c in TOKEN):
+    sys.exit(f"VIRES_TOKEN does not look like a token (length {len(TOKEN)}) -- paste only the token value")
 
 SAT_ALT_KM = 460.0     # height above the WGS84 ellipsoid (Swarm-like orbit)
 GROUND_ALT_KM = 0.0
