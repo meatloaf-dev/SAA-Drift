@@ -2,6 +2,13 @@
 from ESA's VirES API (vires.services) -- no local spherical-harmonic math, no
 coefficient files, stdlib-only (urllib + json). Requires VIRES_TOKEN in the
 environment. Run from the repo root: python3 scripts/build_data.py
+
+Coordinate frames: the grids are on geographic (geodetic, WGS84) lat/lon at
+heights above the ellipsoid. VirES evaluates models in geocentric spherical
+coordinates and returns B in the geocentric NEC frame, so every point is
+converted geodetic -> geocentric before the call and the returned vector is
+rotated back into the local geodetic frame. Skipping this is a 50-350 nT
+latitude-dependent error in F and ~0.1 deg in declination.
 """
 import json
 import math
@@ -16,10 +23,12 @@ TOKEN = os.environ.get("VIRES_TOKEN")
 if not TOKEN:
     sys.exit("VIRES_TOKEN is not set")
 
-EARTH_R_KM = 6371.2
-SAT_ALT_KM = 460.0
-SAT_RADIUS_M = (EARTH_R_KM + SAT_ALT_KM) * 1000.0
-GROUND_RADIUS_M = EARTH_R_KM * 1000.0
+SAT_ALT_KM = 460.0     # height above the WGS84 ellipsoid (Swarm-like orbit)
+GROUND_ALT_KM = 0.0
+
+WGS84_A = 6378.137
+WGS84_F = 1 / 298.257223563
+WGS84_E2 = WGS84_F * (2 - WGS84_F)
 
 LAT_STEP, LON_STEP = 4.0, 4.0
 LATS = [round(-88 + LAT_STEP * i, 1) for i in range(int(176 / LAT_STEP) + 1)]
@@ -34,24 +43,43 @@ SOURCE_OF.update({y: "mco_chaos" for y in EPOCHS_MCO})
 SOURCE_OF.update({y: "igrf14_predicted" for y in EPOCHS_PRED})
 MODEL_OF = {"igrf14": "IGRF", "mco_chaos": "MCO_SHA_2X", "igrf14_predicted": "IGRF"}
 
+# the close-zoom layer: core field + static (crustal/lithospheric) field, internal sources
+# only -- deliberately no magnetospheric (MMA) terms, which vary hour to hour and would
+# stamp one instant's ring-current state into a map that is labelled by epoch
+FINE_MODEL = "CHAOS-Core,CHAOS-Static"
+
+
+def geod2geoc(lat_deg, h_km):
+    """Geodetic latitude + height above WGS84 -> geocentric latitude (deg), radius (m)."""
+    la = math.radians(lat_deg)
+    n = WGS84_A / math.sqrt(1 - WGS84_E2 * math.sin(la) ** 2)
+    x = (n + h_km) * math.cos(la)
+    z = (n * (1 - WGS84_E2) + h_km) * math.sin(la)
+    return math.degrees(math.atan2(z, x)), math.hypot(x, z) * 1000.0
+
+
+def to_geodetic_frame(b_nec, lat_gd, lat_gc):
+    """Rotate a geocentric-NEC vector into the local geodetic NEC frame (east unchanged)."""
+    d = math.radians(lat_gd - lat_gc)
+    n, e, c = b_nec
+    return (n * math.cos(d) + c * math.sin(d), e, c * math.cos(d) - n * math.sin(d))
+
 
 _last_request_t = [0.0]
-_MIN_INTERVAL = 0.4  # seconds between requests -- the run that failed fired ~140 requests back
-                      # to back and got a run of 502s; pacing them is both kinder to a shared
-                      # public API and likely fixes a self-inflicted overload, not just a fluke
+_MIN_INTERVAL = 0.4  # seconds between requests -- be a polite client of a shared public API
 
 
-def vires_eval(model_id, timestamps, lats, lons, radii, retries=12):
+def vires_eval(model_ids, timestamps, lats_gc, lons, radii_m, retries=12):
     wait_for_slot = _MIN_INTERVAL - (time.time() - _last_request_t[0])
     if wait_for_slot > 0:
         time.sleep(wait_for_slot)
     _last_request_t[0] = time.time()
-    payload = {"Timestamp": timestamps, "Latitude": lats, "Longitude": lons, "Radius": radii}
+    payload = {"Timestamp": timestamps, "Latitude": lats_gc, "Longitude": lons, "Radius": radii_m}
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <wps:Execute xmlns:wps="http://www.opengis.net/wps/1.0.0" xmlns:ows="http://www.opengis.net/ows/1.1" service="WPS" version="1.0.0">
   <ows:Identifier>vires:eval_model_at_time_and_location</ows:Identifier>
   <wps:DataInputs>
-    <wps:Input><ows:Identifier>model_ids</ows:Identifier><wps:Data><wps:LiteralData>{model_id}</wps:LiteralData></wps:Data></wps:Input>
+    <wps:Input><ows:Identifier>model_ids</ows:Identifier><wps:Data><wps:LiteralData>{model_ids}</wps:LiteralData></wps:Data></wps:Input>
     <wps:Input><ows:Identifier>input</ows:Identifier><wps:Data><wps:ComplexData mimeType="application/json"><![CDATA[{json.dumps(payload)}]]></wps:ComplexData></wps:Data></wps:Input>
   </wps:DataInputs>
   <wps:ResponseForm><wps:RawDataOutput mimeType="application/json"><ows:Identifier>output</ows:Identifier></wps:RawDataOutput></wps:ResponseForm>
@@ -64,12 +92,16 @@ def vires_eval(model_id, timestamps, lats, lons, radii, retries=12):
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 out = json.loads(resp.read())
-            return out[f"B_NEC_{model_id}"]
+            keys = [k for k in out if k.startswith("B_NEC_")]
+            # a composite request (e.g. core + static) comes back as one vector per model; sum them
+            summed = [list(v) for v in out[keys[0]]]
+            for k in keys[1:]:
+                for i, v in enumerate(out[k]):
+                    summed[i][0] += v[0]; summed[i][1] += v[1]; summed[i][2] += v[2]
+            return summed
         except (urllib.error.URLError, urllib.error.HTTPError) as e:
             if attempt == retries - 1:
                 raise
-            # exponential backoff, capped -- VirES has occasional brief 502/503 blips
-            # (an actual outage, not a bad request) that can outlast a short retry window
             wait = min(60, 2 ** (attempt + 1))
             print(f"  retry {attempt+1}/{retries-1} after {e}; waiting {wait}s", file=sys.stderr)
             time.sleep(wait)
@@ -80,83 +112,138 @@ def chunks(seq, n):
         yield seq[i:i + n]
 
 
-def eval_grid(model_id, date_iso, lat_flat, lon_flat, radius_m, chunk_size=4500):
-    n = len(lat_flat)
-    out = [None] * n
-    radii = [radius_m] * chunk_size
-    times = [date_iso] * chunk_size
-    idx0 = 0
-    for lat_c, lon_c in zip(chunks(lat_flat, chunk_size), chunks(lon_flat, chunk_size)):
-        m = len(lat_c)
-        b_nec = vires_eval(model_id, times[:m], lat_c, lon_c, radii[:m])
-        out[idx0:idx0 + m] = b_nec
-        idx0 += m
+def eval_grid(model_ids, date_iso, lat_gd_flat, lon_flat, h_km, chunk_size=4500):
+    """Evaluate at geodetic (lat, lon, h); returns geodetic-frame (N, E, C) per point."""
+    out = []
+    for lat_c, lon_c in zip(chunks(lat_gd_flat, chunk_size), chunks(lon_flat, chunk_size)):
+        conv = [geod2geoc(la, h_km) for la in lat_c]
+        b = vires_eval(model_ids, [date_iso] * len(lat_c), [c[0] for c in conv], lon_c, [c[1] for c in conv])
+        out.extend(to_geodetic_frame(v, la, c[0]) for v, la, c in zip(b, lat_c, conv))
     return out
 
 
 def f_and_d(b_nec_list):
-    F, D = [], []
-    for (x, y, z) in b_nec_list:
-        F.append(math.sqrt(x * x + y * y + z * z))
-        D.append(math.degrees(math.atan2(y, x)))
+    F = [math.sqrt(x * x + y * y + z * z) for (x, y, z) in b_nec_list]
+    D = [math.degrees(math.atan2(y, x)) for (x, y, z) in b_nec_list]
     return F, D
 
 
+def epoch_decimal(y):
+    return y + 0.5 if SOURCE_OF[y] == "mco_chaos" else float(y)
+
+
+def decimal_to_iso(t):
+    year = int(t)
+    day = int((t - year) * 365.25)
+    # epoch dates land on Jan 1 / Jul 1 exactly, but clamped validity bounds can fall anywhere
+    base = time.mktime((year, 1, 1, 0, 0, 0, 0, 0, 0)) + day * 86400
+    return time.strftime("%Y-%m-%dT00:00:00Z", time.gmtime(base))
+
+
+def epoch_date(y):
+    return decimal_to_iso(epoch_decimal(y))
+
+
+# evaluating outside a model's validity window returns NaN, so the +/-1 yr secular-variation
+# samples are clamped to it (bounds kept a few days inside the published limits)
+VALIDITY = {"IGRF": (1900.0, 2030.0), "MCO_SHA_2X": (1997.12, 2027.08)}
+
+
+def sv_window(y):
+    """(t_lo, t_hi) in decimal years, one year either side of the epoch, clamped to validity."""
+    lo, hi = VALIDITY[MODEL_OF[SOURCE_OF[y]]]
+    t = epoch_decimal(y)
+    return max(lo, t - 1.0), min(hi, t + 1.0)
+
+
+def parabolic_min(f_minus, f0, f_plus, step):
+    """Sub-grid vertex of the parabola through three samples; returns (offset, value)."""
+    denom = f_minus - 2 * f0 + f_plus
+    if denom <= 0:
+        return 0.0, f0
+    off = step * (f_minus - f_plus) / (2 * denom)
+    off = max(-step, min(step, off))
+    return off, f0 - (f_minus - f_plus) ** 2 / (8 * denom)
+
+
+def refine_saa_minimum(model_id, date_iso, lon0, lat0, step=0.5, half=8.0):
+    """Locate the field minimum to sub-degree precision around a coarse-grid guess.
+    Evaluates a local fine window, then parabola-fits the minimum's neighbours."""
+    lats = [max(-88.0, min(88.0, lat0 + step * i)) for i in range(int(-half / step), int(half / step) + 1)]
+    lons = [((lon0 + step * i + 180) % 360) - 180 for i in range(int(-half / step), int(half / step) + 1)]
+    nlon = len(lons)
+    lat_flat = [la for la in lats for _ in lons]
+    lon_flat = [lo for _ in lats for lo in lons]
+    F, _ = f_and_d(eval_grid(model_id, date_iso, lat_flat, lon_flat, SAT_ALT_KM))
+    k = min(range(len(F)), key=lambda i: F[i])
+    li, lo = divmod(k, nlon)
+    lat_c, lon_c, f_c = lats[li], lons[lo], F[k]
+    dlat = dlon = 0.0
+    f_best = f_c
+    if 0 < li < len(lats) - 1:
+        dlat, f_lat = parabolic_min(F[k - nlon], f_c, F[k + nlon], step)
+        f_best = min(f_best, f_lat)
+    if 0 < lo < nlon - 1:
+        dlon, f_lon = parabolic_min(F[k - 1], f_c, F[k + 1], step)
+        f_best = min(f_best, f_lon)
+    return [round(lon_c + dlon, 2), round(lat_c + dlat, 2), round(f_best, 0)]
+
+
 def build_main_grid():
-    lat_flat, lon_flat = [], []
-    for la in LATS:
-        for lo in LONS:
-            lat_flat.append(la)
-            lon_flat.append(lo)
+    lat_flat = [la for la in LATS for _ in LONS]
+    lon_flat = [lo for _ in LATS for lo in LONS]
     n = len(lat_flat)
     print(f"main grid: {n} points x {len(EPOCHS)} epochs")
 
-    F_by_epoch, D_by_epoch, D0_by_epoch = {}, {}, {}
+    F_by_epoch, D_by_epoch, D0_by_epoch, saa_center = {}, {}, {}, {}
     for y in EPOCHS:
         source = SOURCE_OF[y]
         model_id = MODEL_OF[source]
-        date_iso = f"{y}-07-01T00:00:00Z" if source == "mco_chaos" else f"{y}-01-01T00:00:00Z"
+        date_iso = epoch_date(y)
         t0 = time.time()
-        b_sat = eval_grid(model_id, date_iso, lat_flat, lon_flat, SAT_RADIUS_M)
-        b_gnd = eval_grid(model_id, date_iso, lat_flat, lon_flat, GROUND_RADIUS_M)
+        b_sat = eval_grid(model_id, date_iso, lat_flat, lon_flat, SAT_ALT_KM)
+        b_gnd = eval_grid(model_id, date_iso, lat_flat, lon_flat, GROUND_ALT_KM)
         F, D = f_and_d(b_sat)
         _, D0 = f_and_d(b_gnd)
         F_by_epoch[y] = [round(v, 0) for v in F]
         D_by_epoch[y] = [round(v, 2) for v in D]
         D0_by_epoch[y] = [round(v, 2) for v in D0]
-        idx_min = min(range(n), key=lambda i: F[i])
+        k = min(range(n), key=lambda i: F[i])
+        saa_center[str(y)] = refine_saa_minimum(model_id, date_iso, lon_flat[k], lat_flat[k])
         print(f"  {y} ({source}, {model_id}) {time.time()-t0:.1f}s  "
-              f"Fmin={F[idx_min]:.0f} @ {lon_flat[idx_min]},{lat_flat[idx_min]}")
+              f"coarse Fmin={F[k]:.0f} @ {lon_flat[k]},{lat_flat[k]}  refined -> {saa_center[str(y)]}")
 
+    # secular variation dF/dt (nT/yr) at the satellite altitude, always from a single model:
+    # a centred difference across neighbouring epochs is used only when both neighbours are
+    # one year away and from the same model (then it is exactly the model at y+-1); otherwise
+    # the model is evaluated at y+-1 directly, so no estimate straddles the IGRF/CHAOS joins
+    # or averages over a 10-year window
     sv_by_epoch = {}
     for i, y in enumerate(EPOCHS):
-        F_this = F_by_epoch[y]
-        if i == 0:
-            F_next = F_by_epoch[EPOCHS[i + 1]]
-            dt_y = EPOCHS[i + 1] - y
-            sv = [(b - a) / dt_y for a, b in zip(F_this, F_next)]
-        elif i == len(EPOCHS) - 1:
-            F_prev = F_by_epoch[EPOCHS[i - 1]]
-            dt_y = y - EPOCHS[i - 1]
-            sv = [(a - b) / dt_y for a, b in zip(F_prev, F_this)]
+        src = SOURCE_OF[y]
+        prev_ok = i > 0 and EPOCHS[i - 1] == y - 1 and SOURCE_OF[EPOCHS[i - 1]] == src
+        next_ok = i < len(EPOCHS) - 1 and EPOCHS[i + 1] == y + 1 and SOURCE_OF[EPOCHS[i + 1]] == src
+        if prev_ok and next_ok:
+            F_prev, F_next = F_by_epoch[EPOCHS[i - 1]], F_by_epoch[EPOCHS[i + 1]]
+            dt = 2.0
         else:
-            F_next = F_by_epoch[EPOCHS[i + 1]]
-            F_prev = F_by_epoch[EPOCHS[i - 1]]
-            dt_y = EPOCHS[i + 1] - EPOCHS[i - 1]
-            sv = [(b - a) / dt_y for a, b in zip(F_prev, F_next)]
+            model_id = MODEL_OF[src]
+            t_lo, t_hi = sv_window(y)
+            F_prev, _ = f_and_d(eval_grid(model_id, decimal_to_iso(t_lo), lat_flat, lon_flat, SAT_ALT_KM))
+            F_next, _ = f_and_d(eval_grid(model_id, decimal_to_iso(t_hi), lat_flat, lon_flat, SAT_ALT_KM))
+            dt = t_hi - t_lo
+            print(f"  dF/dt {y}: evaluated {model_id} at {t_lo:.2f} and {t_hi:.2f}")
+        sv = [(b - a) / dt for a, b in zip(F_prev, F_next)]
+        if any(math.isnan(v) for v in sv) or any(math.isnan(v) for v in F_by_epoch[y]):
+            sys.exit(f"NaN in results for {y} -- a model was evaluated outside its validity window")
         sv_by_epoch[y] = [round(v, 2) for v in sv]
 
-    saa_center = {}
-    for y in EPOCHS:
-        F = F_by_epoch[y]
-        idx_min = min(range(n), key=lambda i: F[i])
-        saa_center[str(y)] = [round(lon_flat[idx_min], 1), round(lat_flat[idx_min], 1), round(F[idx_min], 0)]
-
-    out = {
+    return {
         "meta": {
             "lat_step": LAT_STEP, "lon_step": LON_STEP,
             "lats": LATS, "lons": LONS,
             "sat_alt_km": SAT_ALT_KM, "epochs": EPOCHS,
+            "frame": "geodetic WGS84 lat/lon; heights above the ellipsoid; NEC components in the local geodetic frame",
             "source_of": {str(y): SOURCE_OF[y] for y in EPOCHS},
             "models": {
                 "igrf14": "IGRF-14 (IAGA / NOAA NCEI, public reference model) -- via VirES (vires.services)",
@@ -164,6 +251,7 @@ def build_main_grid():
                 "igrf14_predicted": "IGRF-14 predictive secular-variation segment, 2025-2030 -- a forecast, not a measurement -- via VirES",
             },
             "saa_center": saa_center,
+            "saa_center_note": "field minimum at 460 km, refined to ~0.1 deg from a 0.5 deg local window; [lon, lat, F nT]",
             "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },
         "F": {str(y): F_by_epoch[y] for y in EPOCHS},
@@ -171,7 +259,6 @@ def build_main_grid():
         "D0": {str(y): D0_by_epoch[y] for y in EPOCHS},
         "dFdt": {str(y): sv_by_epoch[y] for y in EPOCHS},
     }
-    return out
 
 
 def build_fine_grid(fine_step=0.5):
@@ -179,26 +266,22 @@ def build_fine_grid(fine_step=0.5):
     n_lon = int(360 / fine_step)
     lats = [round(-88 + fine_step * i, 2) for i in range(n_lat)]
     lons = [round(-180 + fine_step * i, 2) for i in range(n_lon)]
-    lat_flat, lon_flat = [], []
-    for la in lats:
-        for lo in lons:
-            lat_flat.append(la)
-            lon_flat.append(lo)
-    n = len(lat_flat)
-    print(f"fine grid: {n} points (CHAOS, now)")
+    lat_flat = [la for la in lats for _ in lons]
+    lon_flat = [lo for _ in lats for lo in lons]
+    print(f"fine grid: {len(lat_flat)} points ({FINE_MODEL}, now, ground level)")
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     t0 = time.time()
-    b_gnd = eval_grid("CHAOS", now, lat_flat, lon_flat, GROUND_RADIUS_M, chunk_size=8000)
-    _, D = f_and_d(b_gnd)  # only declination is ever read by the client -- F is dead weight, skip it
+    _, D = f_and_d(eval_grid(FINE_MODEL, now, lat_flat, lon_flat, GROUND_ALT_KM, chunk_size=8000))
     print(f"  done in {time.time()-t0:.1f}s")
     return {
         "meta": {
             "lat_step": fine_step, "lon_step": fine_step,
             "lats": lats, "lons": lons,
             "epoch": now,
-            "model": "CHAOS (core + static crustal field to degree 185 + magnetosphere) -- live via VirES",
+            "frame": "geodetic WGS84, at the ellipsoid surface",
+            "model": "CHAOS core field + CHAOS static (crustal) field to degree 185, internal sources only -- live via VirES",
         },
-        "D": [round(v, 2) for v in D],
+        "D": [round(v, 2) for v in D],  # only declination is ever read by the client
     }
 
 

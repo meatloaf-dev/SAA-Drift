@@ -423,7 +423,7 @@
       </div>
       <div class="src">
         <b>Close-zoom isogonic lines</b>
-        The CHAOS composite model — core field plus the static crustal field to degree/order 185 — includes real crustal-field structure the coarser models above can't see, not just finer interpolation of the same smooth field. Evaluated fresh each refresh on a 0.5° grid, then contoured at 0.25° resolution once you zoom in past ~6° of visible arc.
+        CHAOS core field plus its static crustal (lithospheric) field to degree/order 185 — internal sources only, so the lines aren't stamped with one instant's magnetospheric ring-current state. This includes real crustal-field structure the coarser models above can't see, not just finer interpolation of the same smooth field. Evaluated fresh each refresh on a 0.5° grid at the ellipsoid surface, then contoured at 0.25° resolution once you zoom in past ~6° of visible arc.
       </div>
     </div>
     <p style="margin-top:12px">The grids above are generated offline on a recurring schedule by querying ESA's VirES API (<code>vires.services</code>) with a personal access token, then committed as the static data files this page loads — the page itself makes no live network calls and needs no login from you. Raw per&#8209;satellite telemetry (Level&#8209;1b/2 CDF products) is also available from VirES and ESA's open dissemination server at <code>swarm-diss.eo.esa.int</code> for anyone who wants to go a layer deeper.</p>
@@ -579,15 +579,16 @@
   function marchingSquares(arr, threshold){
     const segs = [];
     for (let li=0; li<latN-1; li++){
-      for (let lo=0; lo<lonN-1; lo++){
+      for (let lo=0; lo<lonN; lo++){
+        const loE = (lo+1) % lonN;         // the last column's eastern edge is the antimeridian
         const tl = arr[idx(li+1, lo)];     // north-west corner (higher lat)
-        const tr = arr[idx(li+1, lo+1)];
-        const br = arr[idx(li, lo+1)];
+        const tr = arr[idx(li+1, loE)];
+        const br = arr[idx(li, loE)];
         const bl = arr[idx(li, lo)];
         const cTL = tl>threshold, cTR = tr>threshold, cBR = br>threshold, cBL = bl>threshold;
         const code = (cTL?1:0)|(cTR?2:0)|(cBR?4:0)|(cBL?8:0);
         if (code===0 || code===15) continue;
-        const lat0 = lats[li], lat1 = lats[li+1], lon0 = lons[lo], lon1 = lons[lo+1];
+        const lat0 = lats[li], lat1 = lats[li+1], lon0 = lons[lo], lon1 = lons[lo] + meta.lon_step;
         function onTop(){ const f=(threshold-tl)/(tr-tl); return [lon0+(lon1-lon0)*f, lat1]; }
         function onBottom(){ const f=(threshold-bl)/(br-bl); return [lon0+(lon1-lon0)*f, lat0]; }
         function onLeft(){ const f=(threshold-bl)/(tl-bl); return [lon0, lat0+(lat1-lat0)*f]; }
@@ -661,7 +662,13 @@
     ctx.imageSmoothingEnabled = true;
     ctx.fillStyle = '#05080c';
     ctx.fillRect(0,0,w,h);
-    ctx.drawImage(off, 0, 0, w, h);
+    // each heatmap texel is a sample AT lons[lo], so it must be drawn centred on that longitude,
+    // not starting there -- otherwise the colour field sits half a cell (2°, ~220 km) east of
+    // the contour lines and markers that use the same data. The second draw covers the
+    // half-cell left bare at the antimeridian by the shift.
+    const halfCell = TEX_W * (meta.lon_step/2) / 360;
+    ctx.drawImage(off, -halfCell, 0, w, h);
+    ctx.drawImage(off, w-halfCell, 0, w, h);
 
     function dot(lon, lat, color, r){
       const [x,yy] = lonLatToXY(lon, lat);
@@ -745,11 +752,16 @@
     const c = meta.saa_center[y];
     const c0 = meta.saa_center[epochs[0]];
     document.getElementById('saaF').textContent = fmtNum(c[2]) + ' nT';
-    const prev = idxE>0 ? meta.saa_center[epochs[idxE-1]][2] : c[2];
-    const d1 = c[2]-prev;
+    // epochs are 5 years apart before 1995 and 1 year apart after, so show a rate, not a raw
+    // difference -- otherwise the 1990->1995 step reads as five times the change of 2024->2025
+    const yPrev = idxE>0 ? epochs[idxE-1] : y;
+    const prev = meta.saa_center[yPrev][2];
+    const rate = idxE>0 ? (c[2]-prev)/(y-yPrev) : 0;
     const dEl = document.getElementById('saaFDelta');
-    dEl.textContent = (d1<=0?'↓ ':'↑ ') + fmtNum(Math.abs(d1),0) + ' nT since previous epoch';
-    dEl.className = 'delta ' + (d1<=0?'down':'up');
+    dEl.textContent = idxE>0
+      ? (rate<=0?'↓ ':'↑ ') + fmtNum(Math.abs(rate),1) + ` nT/yr (vs ${yPrev})`
+      : 'earliest epoch';
+    dEl.className = 'delta ' + (rate<=0?'down':'up');
 
     document.getElementById('saaPos').textContent = `${c[1].toFixed(1)}°, ${c[0].toFixed(1)}°`;
     const drift = haversine(c0[0],c0[1],c[0],c[1]);
@@ -822,25 +834,34 @@
   }
 
   // ---------- probe helper ----------
-  function nearestGridIdx(lon, lat){
-    let lo = Math.round((lon+180)/4);
-    lo = Math.max(0, Math.min(lonN-1, lo));
-    let li = Math.round((lat+88)/4);
-    li = Math.max(0, Math.min(latN-1, li));
-    return [li, lo];
+  // bilinear interpolation on the 4° grid at an exact point. The field is smooth at this scale
+  // (core field, degree <=20), so this is far closer to the model than snapping to the nearest
+  // node, which can be off by a couple of hundred nT where the gradient is steep. Declination is
+  // interpolated as a unit vector so the +-180° wrap near the poles can't produce garbage.
+  function bilinearWeights(lon, lat){
+    const fx = ((lon+180)/4) % lonN, fy = Math.max(0, Math.min(latN-1-1e-9, (lat+88)/4));
+    const lo0 = Math.floor(fx), lo1 = (lo0+1) % lonN, li0 = Math.floor(fy), li1 = Math.min(latN-1, li0+1);
+    const tx = fx-lo0, ty = fy-li0;
+    return [[idx(li0,lo0),(1-tx)*(1-ty)], [idx(li0,lo1),tx*(1-ty)], [idx(li1,lo0),(1-tx)*ty], [idx(li1,lo1),tx*ty]];
+  }
+  function sampleAt(lon, lat, yEp){
+    const w = bilinearWeights(lon, lat);
+    let f=0, sv=0, dx=0, dy=0;
+    for (const [i,k] of w){
+      f += k*D.F[yEp][i]; sv += k*D.dFdt[yEp][i];
+      const a = D.D[yEp][i]*DEG; dx += k*Math.cos(a); dy += k*Math.sin(a);
+    }
+    return { F:f, D:Math.atan2(dy,dx)/DEG, dFdt:sv };
   }
   function probeAt(lon, lat){
-    // the crosshair marks the exact point clicked/searched -- only the readout values
-    // below are pulled from the nearest 4° data grid cell, since that's the data's real resolution
-    const [li,lo] = nearestGridIdx(lon,lat);
     const yEp = epochs[state.epochIdx];
-    const i = idx(li,lo);
-    const f = D.F[yEp][i], d = D.D[yEp][i], sv = D.dFdt[yEp][i];
+    const s = sampleAt(lon, lat, yEp);
+    const f = s.F, d = s.D, sv = s.dFdt;
     const c = meta.saa_center[yEp];
     const dist = haversine(lon,lat,c[0],c[1]);
     state.probe = { lon, lat };
     document.getElementById('probeBox').hidden = false;
-    document.getElementById('pLL').textContent = `${lat.toFixed(1)}°, ${lon.toFixed(1)}° (grid: ${lats[li].toFixed(0)}°, ${lons[lo].toFixed(0)}°)`;
+    document.getElementById('pLL').textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
     document.getElementById('pF').textContent = fmtNum(f) + ' nT';
     document.getElementById('pD').textContent = (d>=0?'+':'') + d.toFixed(1) + '° (' + (d>=0?'E':'W') + ')';
     document.getElementById('pSV').textContent = (sv>=0?'+':'') + sv.toFixed(1) + ' nT/yr';
@@ -1534,13 +1555,11 @@
   });
 
   function seriesAt(lat, lon){
-    const [li, lo] = nearestGridIdx(lon, lat);
-    const i = idx(li, lo);
+    const samples = epochs.map(y => sampleAt(lon, lat, y));
     return {
       years: epochs.slice(),
-      F: epochs.map(y => D.F[y][i]),
-      Dv: epochs.map(y => D.D[y][i]),
-      gridLat: lats[li], gridLon: lons[lo],
+      F: samples.map(s => s.F),
+      Dv: samples.map(s => s.D),
     };
   }
 
@@ -1634,7 +1653,7 @@
       : s.years.length-1;
 
     const dF = s.F[lastObsIdx] - s.F[0];
-    const dD = s.Dv[lastObsIdx] - s.Dv[0];
+    const dD = ((s.Dv[lastObsIdx] - s.Dv[0] + 540) % 360) - 180; // shortest signed swing, safe across ±180°
     const everBelow = Math.min(...s.F) < 22000;
     let crossYear = null;
     if (everBelow){ const ci = s.F.findIndex(v=>v<22000); crossYear = s.years[ci]; }
@@ -1644,13 +1663,13 @@
     locResult.innerHTML = `
       <div class="loc-head">
         <h2>${loc.name}${loc.country?', '+loc.country:''}</h2>
-        <span class="coords">${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° &nbsp;·&nbsp; sampled at nearest grid node ${s.gridLat.toFixed(0)}°, ${s.gridLon.toFixed(0)}°</span>
+        <span class="coords">${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° &nbsp;·&nbsp; interpolated from the 4° model grid</span>
       </div>
       <div class="loc-stats">
         <div class="stat">
           <div class="label">Field intensity, ${s.years[0]}→${s.years[lastObsIdx]}</div>
           <div class="value">${dF<=0?'↓':'↑'} ${fmtNum(Math.abs(dF))} nT</div>
-          <div class="delta ${dF<=0?'down':'up'}">${fmtNum(s.F[0])} → ${fmtNum(s.F[lastObsIdx])} nT observed</div>
+          <div class="delta ${dF<=0?'down':'up'}">${fmtNum(s.F[0])} → ${fmtNum(s.F[lastObsIdx])} nT (IGRF-14 → Swarm/CHAOS)</div>
         </div>
         <div class="stat">
           <div class="label">Declination drift, ${s.years[0]}→${s.years[lastObsIdx]}</div>

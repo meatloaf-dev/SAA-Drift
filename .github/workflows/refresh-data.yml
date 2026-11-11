@@ -9,17 +9,43 @@ on:
 permissions:
   contents: write
 
+# never let a slow run overlap the next one (both would try to commit the same files)
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
 jobs:
   refresh:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # every run from a GitHub-hosted runner has so far been answered with 502 by VirES
+      # while the identical request from elsewhere succeeds. This step records what the
+      # runner actually sees (egress IP, status, response headers -- never the token) so
+      # the cause can be read straight out of the job log.
+      - name: Preflight VirES connectivity (diagnostics)
+        env:
+          VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
+        run: |
+          echo "egress IP: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
+          echo "token length: ${#VIRES_TOKEN}"
+          for opts in "" "-4" "--http1.1" "-4 --http1.1"; do
+            printf 'GetCapabilities %-16s -> ' "[$opts]"
+            curl -sS $opts --max-time 30 -o /dev/null \
+              -w 'HTTP %{http_code} via HTTP/%{http_version} remote %{remote_ip}\n' \
+              -H "Authorization: Bearer $VIRES_TOKEN" \
+              'https://vires.services/ows?service=WPS&request=GetCapabilities' || echo "curl failed"
+          done
+          echo "--- response headers (GetCapabilities) ---"
+          curl -sS --max-time 30 -D - -o /dev/null -H "Authorization: Bearer $VIRES_TOKEN" \
+            'https://vires.services/ows?service=WPS&request=GetCapabilities' || true
 
       - name: Rebuild data from VirES (stdlib-only, no dependencies to install)
         env:
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
-        run: python3 scripts/build_data.py
+        run: python3 -u scripts/build_data.py
 
       - name: Commit refreshed data if changed
         run: |
