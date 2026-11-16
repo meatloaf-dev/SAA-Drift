@@ -313,7 +313,7 @@
           <button class="layer-tab" data-layer="decl" aria-pressed="true">Declination &amp; agonic lines</button>
         </div>
         <div class="layer-tabs">
-          <button class="layer-tab" id="passToggle" aria-pressed="false" title="Overlay 11 real Swarm-A measurement passes from 2026-11-03">🛰 Real satellite pass</button>
+          <button class="layer-tab" id="passToggle" aria-pressed="false">🛰 Real satellite pass</button>
         </div>
       </div>
       <div class="map-canvas-wrap" id="mapCanvasWrap">
@@ -436,7 +436,7 @@
       </div>
       <div class="src">
         <b>Real satellite pass (toggle, field layer)</b>
-        Actual 1&#8209;Hz Swarm&#8209;A <code>MAGx_LR</code> Level&#8209;1b measurements for 2026&#8209;11&#8209;03 — not a model, the real instrument reading, same file anyone can pull from <code>swarm-diss.eo.esa.int</code>.
+        <span id="passCredit"></span>
       </div>
       <div class="src">
         <b>Close-zoom isogonic lines</b>
@@ -464,7 +464,8 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-<script src="data/igrf_data.js"></script>
+<script src="data/field_history.js"></script>
+<script src="data/field_current.js"></script>
 <script src="data/pole_data.js"></script>
 <script src="data/country_data.js"></script>
 <script src="data/cities_data.js"></script>
@@ -474,7 +475,19 @@
 <script>
 (function(){
   "use strict";
-  const D = window.IGRF_DATA, POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA;
+  // the field grids ship in two files: an immutable history (written once) and the last few
+  // CHAOS epochs (rewritten by the weekly refresh). Merge them into one dataset here.
+  function mergeField(hist, cur){
+    const out = { meta: Object.assign({}, hist.meta), F:{}, D:{}, D0:{}, dFdt:{} };
+    out.meta.epochs = hist.meta.epochs.concat(cur.meta.epochs).sort((a,b)=>a-b);
+    out.meta.source_of = Object.assign({}, hist.meta.source_of, cur.meta.source_of);
+    out.meta.saa_center = Object.assign({}, hist.meta.saa_center, cur.meta.saa_center);
+    out.meta.generated = cur.meta.generated;
+    for (const k of ['F','D','D0','dFdt']) Object.assign(out[k], hist[k], cur[k]);
+    return out;
+  }
+  const D = mergeField(window.FIELD_HISTORY, window.FIELD_CURRENT);
+  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA;
   const meta = D.meta;
   const lats = meta.lats, lons = meta.lons;
   const latN = lats.length, lonN = lons.length;
@@ -1447,6 +1460,9 @@
 
   const passToggle = document.getElementById('passToggle');
   passToggle.hidden = state.layer !== 'field';
+  passToggle.title = `Overlay ${PASS.passes.length} real ${PASS.satellite} measurement passes from ${PASS.date}`;
+  document.getElementById('passCredit').textContent =
+    `Actual 1 Hz ${PASS.satellite} ${PASS.product.replace('SW_OPER_','')} Level-1b measurements for ${PASS.date} — the most recent complete day ESA had published when this page's data was refreshed (the operational product runs a few days behind real time). Not a model: the real instrument reading, pulled from VirES.`;
   document.querySelectorAll('.layer-tab[data-layer]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('.layer-tab[data-layer]').forEach(b=>b.setAttribute('aria-pressed','false'));
