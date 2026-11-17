@@ -1,9 +1,20 @@
 # Geomagnetic Drift Atlas
 
 An interactive 3D globe of Earth's magnetic field: the South Atlantic Anomaly,
-field intensity and declination, isogonic/isodynamic lines at any zoom, the
-drift of magnetic north, 1900–2030. Static site, no server, no build step for
-the page itself.
+field intensity, declination and inclination, isodynamic / isogonic / isoclinic
+lines at any zoom, and the drift of magnetic north, 1900–2030. Static site, no
+server, no build step for the page itself.
+
+Three magnetic layers, which are easy to confuse:
+
+| layer | contours | run | zero contour |
+|---|---|---|---|
+| Field intensity (F) | isodynamic, nT at 460 km | — | — |
+| Declination (D) | isogonic, degrees | north–south | agonic line |
+| Inclination (I) | isoclinic, degrees of dip | **east–west** | dip equator |
+
+Two optional overlays: Smithsonian GVP volcanoes, and the UVB latitude bounds
+(solar geometry only — no cloud, ozone, aerosol or altitude data).
 
 ## How it stays current
 
@@ -24,10 +35,22 @@ lean for years:
 | `data/field_history.js` | IGRF-14 1900–1995, the 2027–2030 forecast, CHAOS epochs older than three years | only by `--full`, or automatically when VirES publishes a new model version / the year rolls over |
 | `data/field_current.js` | the last three CHAOS epochs (the ones a model update can revise) | weekly |
 | `data/chaos_fine_data.js` | close-zoom declination, CHAOS core + crustal field, evaluated at refresh time | weekly |
+| `data/volcano_data.js` | Smithsonian GVP Holocene volcano list (name, position, last eruption) | weekly |
+| `data/tier_data.js` | ranked sites from the source document, with the Mag and Dec axes re-scored from the live field | weekly |
 | `data/pass_data.js` | the most recent complete day of real Swarm-A 1 Hz measurements over the anomaly (ESA publishes these ~4 days behind real time) | weekly |
 | `pole_data.js`, `country_data.js`, `cities_data.js`, `zip_data.js` | static reference data | never |
 
 A weekly run makes ~45 API calls (~4 min); a full rebuild ~230 (~20 min).
+
+## Local preview
+
+```
+docker compose up      # -> http://localhost:8080
+```
+
+nginx serving the repo the way GitHub Pages does (gzip, correct MIME types) but
+with caching off, so an edit shows on a plain reload. Any static server works —
+`python3 -m http.server` is fine; Docker just makes it match production.
 
 ## Accuracy notes
 
@@ -42,6 +65,13 @@ A weekly run makes ~45 API calls (~4 min); a full rebuild ~230 (~20 min).
   difference across the IGRF/CHAOS join.
 - The close-zoom grid uses internal sources only (core + crustal), so it is
   not stamped with one instant's magnetospheric state.
+- The "Site factors" tab explains what each layer measures.
+- Ranked-site scores are not transcribed. The two axes the source defines with
+  numeric thresholds (Mag, Dec) are recomputed each refresh from the live field
+  at surface height, matching the scale its bands use; 9 of 17 sites currently
+  differ from the published score. Its own agonic line is a fixed polyline
+  matching the line as it stood around 1940 — ~13.6 deg east of today's — so it
+  is not used for anything.
 
 ## One-time setup
 

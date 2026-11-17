@@ -212,6 +212,49 @@
   }
   .forecast-flag b{ color:var(--ink); }
 
+  /* ---------- site factors ---------- */
+  .factors{ padding:20px 22px; max-width:900px; }
+  .factors h2{
+    font-family:var(--font-display); font-size:12px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.6px; color:var(--ink-muted); margin:22px 0 10px;
+  }
+  .factors h2:first-child{ margin-top:0; }
+  .factors p{ font-size:13px; line-height:1.65; color:var(--ink-muted); margin:0 0 10px; max-width:68ch; }
+  .factors p b{ color:var(--ink); font-weight:600; }
+  .factors .lede{ color:var(--ink); }
+  .factors .muted{ color:var(--ink-faint); font-size:12px; }
+  .factors a{ color:var(--accent); }
+  .factor-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; margin-bottom:4px; }
+  .factor{ background:var(--panel-2); border:1px solid var(--border-soft); border-radius:10px; padding:12px 14px; }
+  .factor p{ font-size:12px; margin:0; }
+  .factor-head{
+    display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600;
+    color:var(--ink); margin-bottom:7px;
+  }
+  .factor-head .sw{ width:16px; height:3px; border-radius:2px; flex:none; }
+
+  .tier-tables{ display:flex; flex-direction:column; gap:14px; margin:4px 0 6px; }
+  .tier-block h3{
+    font-family:var(--font-body); font-size:12px; font-weight:700; color:var(--ink);
+    margin:0 0 6px; display:flex; align-items:center; gap:7px;
+  }
+  .tier-block h3 .pip{ width:9px; height:9px; border-radius:50%; flex:none; }
+  .tier-table{ width:100%; border-collapse:collapse; font-size:11.5px; }
+  .tier-table th{
+    text-align:right; font-weight:600; color:var(--ink-faint); font-size:10px;
+    text-transform:uppercase; letter-spacing:.4px; padding:0 6px 5px; border-bottom:1px solid var(--border-soft);
+  }
+  .tier-table th:first-child{ text-align:left; }
+  .tier-table td{ padding:5px 6px; text-align:right; color:var(--ink-muted); border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; }
+  .tier-table td:first-child{ text-align:left; color:var(--ink); }
+  .tier-table td.live{ font-family:var(--font-mono); color:var(--ink); }
+  .tier-table .grp{ color:var(--ink-faint); font-weight:600; }
+  .tier-table td.moved{ color:var(--ink); font-weight:600; }
+  .tier-table td.moved s, .moved-key s{ color:var(--ink-faint); font-weight:400; margin-left:4px; opacity:.75; }
+  .moved-key{ color:var(--ink); font-weight:600; }
+  .tier-table thead tr:first-child th{ border-bottom:none; padding-bottom:2px; text-align:center; font-size:9.5px; }
+  .tier-scroll{ overflow-x:auto; }
+
   /* ---------- page nav ---------- */
   .page-nav{ display:flex; gap:8px; margin-bottom:16px; }
   .page-tab{
@@ -300,6 +343,7 @@
   <nav class="page-nav" role="tablist" aria-label="Page">
     <button class="page-tab" data-page="atlas" aria-pressed="true">Global atlas</button>
     <button class="page-tab" data-page="location" aria-pressed="false">Location history</button>
+    <button class="page-tab" data-page="factors" aria-pressed="false">Site factors</button>
   </nav>
 
   <section id="pageAtlas">
@@ -311,8 +355,12 @@
         <div class="layer-tabs" role="tablist" aria-label="Map layer">
           <button class="layer-tab" data-layer="field" aria-pressed="false">Field intensity</button>
           <button class="layer-tab" data-layer="decl" aria-pressed="true">Declination &amp; agonic lines</button>
+          <button class="layer-tab" data-layer="incl" aria-pressed="false">Inclination &amp; dip equator</button>
         </div>
         <div class="layer-tabs">
+          <button class="layer-tab" id="volcanoToggle" aria-pressed="false" title="Smithsonian Global Volcanism Program — Holocene volcanoes">🌋 Volcanoes</button>
+          <button class="layer-tab" id="sunToggle" aria-pressed="false" title="Latitudes where the midday sun climbs high enough for year-round vitamin D synthesis">☀ UVB latitudes</button>
+          <button class="layer-tab" id="tierToggle" aria-pressed="false" title="Tier 1 and 2 locations as ranked in the source document">◆ Tier 1–2 sites</button>
           <button class="layer-tab" id="passToggle" aria-pressed="false">🛰 Real satellite pass</button>
         </div>
       </div>
@@ -338,6 +386,7 @@
           <div class="row"><span>lat, lon</span><span id="pLL">—</span></div>
           <div class="row"><span>F (total field)</span><span id="pF">—</span></div>
           <div class="row"><span>D (declination)</span><span id="pD">—</span></div>
+          <div class="row"><span>I (inclination)</span><span id="pI">—</span></div>
           <div class="row"><span>dF/dt</span><span id="pSV">—</span></div>
           <div class="row"><span>→ SAA centre</span><span id="pDist">—</span></div>
         </div>
@@ -442,6 +491,18 @@
         <b>Close-zoom isogonic lines</b>
         CHAOS core field plus its static crustal (lithospheric) field to degree/order 185 — internal sources only, so the lines aren't stamped with one instant's magnetospheric ring-current state. This includes real crustal-field structure the coarser models above can't see, not just finer interpolation of the same smooth field. Evaluated fresh each refresh on a 0.5° grid at the ellipsoid surface, then contoured at 0.25° resolution once you zoom in past ~6° of visible arc.
       </div>
+      <div class="src">
+        <b>Inclination &amp; the dip equator</b>
+        Magnetic dip, derived from the same model vectors as the layers above — the angle the field makes with the horizontal, at the ellipsoid surface. Isoclinic lines run roughly east–west; the 0° contour is the dip equator, where the field is purely horizontal.
+      </div>
+      <div class="src">
+        <b>Volcanoes (toggle)</b>
+        Smithsonian Institution, Global Volcanism Program — Holocene Volcano List, <a href="https://volcano.si.edu" target="_blank" rel="noopener">volcano.si.edu</a>. <span id="volcanoCredit"></span>
+      </div>
+      <div class="src">
+        <b>UVB latitudes (toggle)</b>
+        Computed from solar geometry alone — the latitudes where the midday sun exceeds ~45° elevation, given Earth's 23.44° axial tilt. No cloud, ozone, aerosol or altitude data is involved, so these are first-order bounds rather than measured irradiance.
+      </div>
     </div>
     <p style="margin-top:12px">The grids above are generated offline on a recurring schedule by querying ESA's VirES API (<code>vires.services</code>) with a personal access token, then committed as the static data files this page loads — the page itself makes no live network calls and needs no login from you. Raw per&#8209;satellite telemetry (Level&#8209;1b/2 CDF products) is also available from VirES and ESA's open dissemination server at <code>swarm-diss.eo.esa.int</code> for anyone who wants to go a layer deeper.</p>
   </footer>
@@ -461,6 +522,55 @@
       </div>
     </div>
   </section>
+
+  <section id="pageFactors" hidden>
+    <div class="panel factors">
+      <h2>Reading the three magnetic layers</h2>
+      <p class="lede">The globe can draw three different things, and they are easy to confuse because all three are "magnetic field lines." They measure different quantities and they run in different directions.</p>
+
+      <div class="factor-grid">
+        <div class="factor">
+          <div class="factor-head"><span class="sw" style="background:#ffd9a0"></span> Field intensity (F)</div>
+          <p><b>Isodynamic lines</b> — contours of total field strength, in nanotesla. This is the layer that shows the South Atlantic Anomaly: a broad region where the field is roughly a third weaker than elsewhere at the same latitude. Measured at 460&nbsp;km, satellite altitude, because that is where the weakening actually matters — it is why spacecraft power down instruments crossing it.</p>
+        </div>
+        <div class="factor">
+          <div class="factor-head"><span class="sw" style="background:#eef1f6"></span> Declination (D) — runs north–south</div>
+          <p><b>Isogonic lines</b> — contours of the angle between magnetic north and true north. The <b>agonic line</b> is the zero contour, where a compass happens to point at true north. Because it tracks a bearing, it runs roughly <b>north–south</b>, pole to pole.</p>
+        </div>
+        <div class="factor">
+          <div class="factor-head"><span class="sw" style="background:linear-gradient(90deg,#a93bc4,#2da97c)"></span> Inclination (I) — runs east–west</div>
+          <p><b>Isoclinic lines</b> — contours of magnetic dip, the angle the field makes with the horizontal. Straight down at the north magnetic pole (+90°), straight up at the south (−90°), and perfectly level along the <b>dip equator</b> (0°). These are the lines that genuinely run <b>east–west</b>, and the dip equator is the one that has been migrating north.</p>
+        </div>
+      </div>
+
+      <h2>Overlays</h2>
+      <div class="factor-grid">
+        <div class="factor">
+          <div class="factor-head"><span class="sw" style="background:#ff6b35;height:7px;width:7px;border-radius:50%"></span> Volcanoes</div>
+          <p>Every Holocene volcano in the Smithsonian Institution's <a href="https://volcano.si.edu" target="_blank" rel="noopener">Global Volcanism Program</a> catalogue, with those that have erupted since 1900 picked out brighter. Refreshed on the same weekly schedule as the field data, so eruption years stay current.</p>
+        </div>
+        <div class="factor">
+          <div class="factor-head"><span class="sw" style="background:#ffd24a"></span> UVB latitudes</div>
+          <p>Where the midday sun climbs above ~45° elevation, the threshold usually cited for vitamin&nbsp;D synthesis in skin. This is <b>pure solar geometry</b> — latitude and the 23.44° tilt of Earth's axis, nothing else. It takes no account of cloud, ozone, altitude or aerosol.</p>
+        </div>
+      </div>
+
+      <h2>Where the agonic line actually runs</h2>
+      <p>The source's map draws the agonic line as a fixed polyline of eleven points. Measured against the computed line for the current epoch, it sits <b>8.7° to 16.6° east</b> of where zero declination now falls, averaging 13.6°. Fitted against every epoch in this atlas it matches the line as it stood around <b>1940</b> to within 2°, and the match degrades steadily after that: the agonic line has drifted west across the Americas at roughly 0.11–0.14° a year for decades. Switch the epoch slider back to 1940 and the computed line settles onto that polyline.</p>
+      <p>Eighty-six years of drift is too much to carry into a ranking that scores distance from the line, so nothing here is modelled on that polyline. The agonic line this atlas draws is computed from the live field at whatever epoch the slider is on, and the Dec scores below are recomputed against it.</p>
+
+      <h2>Ranked sites — tiers 1 and 2</h2>
+      <p>Tiers, names and the five published scores are from the source. <b>Mag</b> and <b>Dec</b> are the two axes it defines with explicit numeric thresholds — <code>|dec|</code> under 2° scoring 5, surface intensity above 55,000&nbsp;nT scoring 5, and so on — so both are recomputed here from the live field rather than carried over. Nine of the seventeen sites change. UVB, Vol and SAA have no published thresholds and pass through unchanged, each with the measured quantity beside it: months a year the midday sun clears 45°, kilometres to the nearest volcano that has erupted since 1900, and kilometres to the current anomaly centre.</p>
+      <p>Recomputing moves the Central American sites in both directions. <b>El Salvador and Guatemala hold Dec 5</b> — both sit 0.4° off true zero declination, closer to the real line than the source's own map puts them. <b>Costa Rica and Nicaragua drop to Dec 4</b> at 2.1° and 2.3°, just outside the 2° band. Taiwan and Sicily gain a Mag point, Iceland and Kamchatka lose one. Everything recomputes on each weekly refresh, so these track the field as it moves.</p>
+      <p>Switch on <b>◆ Tier 1–2 sites</b> on the declination layer to see them against the line.</p>
+      <div class="tier-tables" id="tierTables"></div>
+
+      <h2>Source</h2>
+      <p>These layers follow the factors set out in <a href="https://gistpreview.github.io/?1308d8d579590c5fec0a736719aa03b6" target="_blank" rel="noopener">“Where to Live — Magnetic Inclination × Declination × UVB × nnEMF”</a> (v8, May 2026), compiled by <code>jespada</code> drawing on the work of Jack Kruse. That document identifies five factors — field intensity, declination relative to the agonic line, magnetic inclination, active volcanism, and UVB availability by latitude. All five are available on this globe, together with distance to the anomaly centre in the probe readout.</p>
+      <p>Each is drawn here from its primary source rather than transcribed. The magnetic layers are computed from ESA's Swarm mission and the CHAOS and IGRF&#8209;14 models through the <a href="https://vires.services" target="_blank" rel="noopener">VirES</a> API — the same models that document cites, including <a href="https://doi.org/10.1016/j.pepi.2025.107447" target="_blank" rel="noopener">Finlay, Kloss &amp; Gillet (2025)</a> and <a href="https://www.ncei.noaa.gov/products/world-magnetic-model" target="_blank" rel="noopener">NOAA's World Magnetic Model</a>. Volcanism comes from the Smithsonian catalogue, and the UVB bounds from solar geometry.</p>
+      <p class="muted">Values are recomputed from the live models on a weekly schedule, so they track the current epoch rather than a fixed snapshot, and the epoch slider runs them back to 1900 and forward through the IGRF&#8209;14 forecast to 2030.</p>
+    </div>
+  </section>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
@@ -472,22 +582,24 @@
 <script src="data/zip_data.js"></script>
 <script src="data/pass_data.js"></script>
 <script src="data/chaos_fine_data.js"></script>
+<script src="data/volcano_data.js"></script>
+<script src="data/tier_data.js"></script>
 <script>
 (function(){
   "use strict";
   // the field grids ship in two files: an immutable history (written once) and the last few
   // CHAOS epochs (rewritten by the weekly refresh). Merge them into one dataset here.
   function mergeField(hist, cur){
-    const out = { meta: Object.assign({}, hist.meta), F:{}, D:{}, D0:{}, dFdt:{} };
+    const out = { meta: Object.assign({}, hist.meta), F:{}, D:{}, D0:{}, I0:{}, dFdt:{} };
     out.meta.epochs = hist.meta.epochs.concat(cur.meta.epochs).sort((a,b)=>a-b);
     out.meta.source_of = Object.assign({}, hist.meta.source_of, cur.meta.source_of);
     out.meta.saa_center = Object.assign({}, hist.meta.saa_center, cur.meta.saa_center);
     out.meta.generated = cur.meta.generated;
-    for (const k of ['F','D','D0','dFdt']) Object.assign(out[k], hist[k], cur[k]);
+    for (const k of ['F','D','D0','I0','dFdt']) Object.assign(out[k], hist[k], cur[k]);
     return out;
   }
   const D = mergeField(window.FIELD_HISTORY, window.FIELD_CURRENT);
-  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA;
+  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA, VOLCANOES = window.VOLCANO_DATA, TIERS = window.TIER_DATA;
   const meta = D.meta;
   const lats = meta.lats, lons = meta.lons;
   const latN = lats.length, lonN = lons.length;
@@ -536,6 +648,19 @@
   function divergingColor(t){ return hsl(...divergingHSL(t)); }
   function divergingColorRGB(t){ return hslToRgb(...divergingHSL(t)); }
 
+  // diverging for magnetic dip: green where the field points down (northern magnetic
+  // hemisphere) <-> violet where it points up (southern), neutral at the dip equator.
+  // A different hue pair from the declination ramp on purpose -- two diverging layers in the
+  // same palette would read as the same quantity. Hue fixed per side, as above.
+  function inclHSL(t){ // t in [-1,1]
+    t = Math.max(-1, Math.min(1, t));
+    const hue = t >= 0 ? 158 : 288;
+    const m = Math.abs(t);
+    return [hue, lerp(8, t>=0?58:54, m), lerp(15, t>=0?42:50, m)];
+  }
+  function inclColor(t){ return hsl(...inclHSL(t)); }
+  function inclColorRGB(t){ return hslToRgb(...inclHSL(t)); }
+
   function idx(li, lo){ return li*lonN + lo; }
 
   // the colour ramp is deliberately clipped to the band where the anomaly actually lives —
@@ -553,9 +678,9 @@
   function setTexSize(w, h){ TEX_W = w; TEX_H = h; texCanvas.width = w; texCanvas.height = h; }
 
   const LOD_TIERS = [
-    { texW: 2048, texH: 1024, declStep: 10, fieldStep: 1500 }, // far (default)
-    { texW: 3072, texH: 1536, declStep: 5,  fieldStep: 1000 }, // medium
-    { texW: 4096, texH: 2048, declStep: 2,  fieldStep: 600  }, // close
+    { texW: 2048, texH: 1024, declStep: 10, fieldStep: 1500, inclStep: 10 }, // far (default)
+    { texW: 3072, texH: 1536, declStep: 5,  fieldStep: 1000, inclStep: 5  }, // medium
+    { texW: 4096, texH: 2048, declStep: 2,  fieldStep: 600,  inclStep: 2  }, // close
   ];
   function lodFor(dist){
     if (dist < 1.9) return LOD_TIERS[2];
@@ -566,6 +691,13 @@
     if (layer === 'decl'){
       const lv = []; for (let v=-80; v<=80; v+=tier.declStep) lv.push(v);
       return lv;
+    }
+    if (layer === 'incl'){
+      // isoclinic lines: constant magnetic dip, running roughly east-west. 0 is the dip
+      // equator, where a compass needle sits level and the field is purely horizontal.
+      const lv = []; for (let v=-80; v<=80; v+=tier.inclStep) lv.push(v);
+      if (!lv.includes(0)) lv.push(0);
+      return lv.sort((a,b)=>a-b);
     }
     const lv = []; for (let v=18000; v<=27000; v+=tier.fieldStep) lv.push(v);
     if (!lv.includes(22000)) lv.push(22000);
@@ -584,7 +716,7 @@
 
   function paintHeatmap(layer, epochIdx){
     const y = epochs[epochIdx];
-    const arrF = D.F[y], arrD = D.D0[y];
+    const arrF = D.F[y], arrD = D.D0[y], arrI = D.I0[y];
     const data = imgData.data;
     for (let li=0; li<latN; li++){
       const row = (latN-1-li); // flip: li=last (north,+88) -> row 0 (top)
@@ -594,6 +726,9 @@
         if (layer === 'field'){
           const t = Math.max(0, Math.min(1, (FIELD_DOMAIN[1] - arrF[i]) / (FIELD_DOMAIN[1] - FIELD_DOMAIN[0])));
           rgb = fieldColorRGB(Math.pow(t, 0.75));
+        } else if (layer === 'incl'){
+          const t = Math.max(-1, Math.min(1, arrI[i]/INCL_CLAMP));
+          rgb = inclColorRGB(t);
         } else {
           const t = Math.max(-1, Math.min(1, arrD[i]/DECL_CLAMP));
           rgb = divergingColorRGB(t);
@@ -664,16 +799,20 @@
   // is IGRF-14's predictive secular-variation segment, a forecast. Scrubbing defaults to "today"
   // (the latest real data) and only reaches the forecast years once the toggle is switched on.
   const CUTOFF_IDX = epochs.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos');
-  const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false };
+  const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false, showVolcanoes:false, showSun:false, showTiers:false };
   function maxAllowedIdx(){ return state.showProjection ? epochs.length-1 : CUTOFF_IDX; }
   let playTimer = null;
 
   const layerCfg = {
     field: { name:'Field intensity (F)', unit:'nT', ring:true },
     decl:  { name:'Declination (D) & isogonic lines', unit:'°', ring:false },
+    incl:  { name:'Inclination (I) & dip equator', unit:'°', ring:false },
   };
 
-  const EMPHASIS = { field: 22000, decl: 0 };
+  // the emphasised contour per layer: 0 declination is the agonic line (runs north-south),
+  // 0 inclination is the dip equator (runs east-west)
+  const EMPHASIS = { field: 22000, decl: 0, incl: 0 };
+  const INCL_CLAMP = 90;
 
   // ---------- main render: paints the equirect texture, then pushes it to the sphere ----------
   // The texture now carries ONLY the colour heatmap -- every line (graticule, coastlines,
@@ -731,6 +870,9 @@
     if (state.layer==='field'){
       gradient = `linear-gradient(90deg, ${fieldColor(0)}, ${fieldColor(.5)}, ${fieldColor(1)})`;
       lo = `≥${fmtNum(FIELD_DOMAIN[1])} nT (calm)`; hi = `≤${fmtNum(FIELD_DOMAIN[0])} nT (anomalous)`;
+    } else if (state.layer==='incl'){
+      gradient = `linear-gradient(90deg, ${inclColor(-1)}, ${inclColor(0)}, ${inclColor(1)})`;
+      lo = `−90° (points up)`; hi = `+90° (points down)`;
     } else {
       gradient = `linear-gradient(90deg, ${divergingColor(-1)}, ${divergingColor(0)}, ${divergingColor(1)})`;
       lo = `${DECL_CLAMP}°W`; hi = `${DECL_CLAMP}°E`;
@@ -746,14 +888,34 @@
     const extra = state.layer==='field'
       ? `<div class="row"><span class="swatch" style="background:#ffd9a0"></span> isodynamic lines, every ${fmtNum(curTier.fieldStep)}&nbsp;nT</div>
          <div class="row"><span class="swatch" style="background:#5ab8ff"></span> 22,000&nbsp;nT line (emphasised)</div>`
+      : state.layer==='incl'
+      ? `<div class="row"><span class="swatch" style="background:#eef1f6"></span> isoclinic lines, every ${curTier.inclStep}° — these run east–west</div>
+         <div class="row"><span class="swatch" style="background:#5ab8ff"></span> dip equator, 0° (emphasised)</div>`
       : `<div class="row"><span class="swatch" style="background:#eef1f6"></span> isogonic lines, every ${curTier.declStep}°${closeNote}</div>
-         <div class="row"><span class="swatch" style="background:#5ab8ff"></span> 0° line (emphasised)</div>`;
-    const tight = `<div class="row" style="color:var(--ink-faint);font-size:10px;max-width:220px">Lines packed tight = the field is changing fast over a short distance.</div>`;
+         <div class="row"><span class="swatch" style="background:#5ab8ff"></span> agonic line, 0° (emphasised) — runs north–south</div>`;
+    const tight = state.layer==='incl'
+      ? `<div class="row" style="color:var(--ink-faint);font-size:10px;max-width:220px">Dip is the angle the field makes with the horizontal: 0° at the dip equator, ±90° at the magnetic poles.</div>`
+      : `<div class="row" style="color:var(--ink-faint);font-size:10px;max-width:220px">Lines packed tight = the field is changing fast over a short distance.</div>`;
     let passRow = '';
     if (state.showPass && state.layer==='field'){
       let minF = Infinity, minT = '';
       for (const pass of PASS.passes) for (const p of pass) if (p[3] < minF){ minF = p[3]; minT = p[0]; }
       passRow = `<div class="row"><span class="swatch" style="background:#5ab8ff"></span> ${PASS.satellite} measured, ${PASS.date} (${PASS.passes.length} passes, min ${fmtNum(minF)}&nbsp;nT at ${minT.slice(11)}&nbsp;UTC)</div>`;
+    }
+    let volcanoRow = '', sunRow = '';
+    if (state.showVolcanoes){
+      volcanoRow = `<div class="row"><span class="swatch" style="background:#ff6b35;height:6px;width:6px;border-radius:50%"></span> volcano, erupted since 1900 (${fmtNum(volcanoRecent.length)})</div>
+        <div class="row"><span class="swatch" style="background:#8a5a3c;height:5px;width:5px;border-radius:50%"></span> other Holocene volcano (${fmtNum(volcanoOlder.length)})</div>`;
+    }
+    let tierRow = '';
+    if (state.showTiers && state.layer==='decl' && TIERS){
+      const n1 = TIERS.places.filter(p=>p.tier===1).length, n2 = TIERS.places.filter(p=>p.tier===2).length;
+      tierRow = `<div class="row"><span class="swatch" style="background:#ff5fa2;height:7px;width:7px;border-radius:50%"></span> Tier 1 site (${n1})</div>
+        <div class="row"><span class="swatch" style="background:#c77ea0;height:6px;width:6px;border-radius:50%"></span> Tier 2 site (${n2})</div>`;
+    }
+    if (state.showSun){
+      sunRow = `<div class="row"><span class="swatch" style="background:#ffd24a"></span> ±21.6° — midday sun high enough year-round</div>
+        <div class="row"><span class="swatch" style="background:rgba(255,210,74,.5)"></span> ±45° / ±68.4° — about half the year / never</div>`;
     }
     key.innerHTML = `
       ${extra}
@@ -762,7 +924,10 @@
       <div class="row"><span class="swatch" style="background:rgba(238,241,246,.4)"></span> country border</div>
       <div class="row"><span class="swatch" style="background:#d9502b"></span> SAA centre track</div>
       <div class="row"><span class="swatch" style="background:#19997f"></span> N magnetic pole track</div>
-      ${passRow}`;
+      ${passRow}
+      ${volcanoRow}
+      ${sunRow}
+      ${tierRow}`;
   }
 
   function fmtNum(n, d=0){ return n.toLocaleString('en-US', {maximumFractionDigits:d, minimumFractionDigits:d}); }
@@ -877,12 +1042,12 @@
   }
   function sampleAt(lon, lat, yEp){
     const w = bilinearWeights(lon, lat);
-    let f=0, sv=0, dx=0, dy=0;
+    let f=0, sv=0, dx=0, dy=0, inc=0;
     for (const [i,k] of w){
-      f += k*D.F[yEp][i]; sv += k*D.dFdt[yEp][i];
+      f += k*D.F[yEp][i]; sv += k*D.dFdt[yEp][i]; inc += k*D.I0[yEp][i];
       const a = D.D[yEp][i]*DEG; dx += k*Math.cos(a); dy += k*Math.sin(a);
     }
-    return { F:f, D:Math.atan2(dy,dx)/DEG, dFdt:sv };
+    return { F:f, D:Math.atan2(dy,dx)/DEG, I:inc, dFdt:sv };
   }
   // the readout follows the current epoch, so scrubbing or playing the timelapse with a probe
   // placed shows that point's field changing through time (render() calls this on every epoch)
@@ -897,6 +1062,7 @@
     document.getElementById('pLL').textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
     document.getElementById('pF').textContent = fmtNum(f) + ' nT';
     document.getElementById('pD').textContent = (d>=0?'+':'') + d.toFixed(1) + '° (' + (d>=0?'E':'W') + ')';
+    document.getElementById('pI').textContent = (s.I>=0?'+':'') + s.I.toFixed(1) + '° (' + (s.I>=0?'down':'up') + ')';
     document.getElementById('pSV').textContent = (sv>=0?'+':'') + sv.toFixed(1) + ' nT/yr';
     document.getElementById('pDist').textContent = fmtNum(dist) + ' km';
   }
@@ -1113,6 +1279,68 @@
   passTrack.visible = false;
   scene.add(passTrack);
 
+  // ---- volcanoes (Smithsonian GVP Holocene list) ----
+  // Two point clouds so recency reads at a glance: erupted since 1900 vs earlier in the
+  // Holocene. Constant screen size (no attenuation) keeps them legible at every zoom.
+  function volcanoPoints(rows, r){
+    const pos = [];
+    for (const v of rows){ const p = lonLatToVec3(v[2], v[1], r); pos.push(p.x,p.y,p.z); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    return g;
+  }
+  const volcanoRecent = [], volcanoOlder = [];
+  for (const v of (VOLCANOES ? VOLCANOES.volcanoes : [])) (v[3] !== null && v[3] >= 1900 ? volcanoRecent : volcanoOlder).push(v);
+  const volcanoLayer = new THREE.Group();
+  volcanoLayer.visible = false;
+  volcanoLayer.add(new THREE.Points(volcanoPoints(volcanoOlder, 1.002),
+    new THREE.PointsMaterial({ color:0x8a5a3c, size:2.5, sizeAttenuation:false, transparent:true, opacity:0.75 })));
+  volcanoLayer.add(new THREE.Points(volcanoPoints(volcanoRecent, 1.0022),
+    new THREE.PointsMaterial({ color:0xff6b35, size:4.5, sizeAttenuation:false })));
+  scene.add(volcanoLayer);
+
+  // ---- ranked sites from the source document (tiers 1 and 2) ----
+  const tierLayer = new THREE.Group();
+  tierLayer.visible = false;
+  {
+    const byTier = { 1: [], 2: [] };
+    for (const p of (TIERS ? TIERS.places : [])) if (byTier[p.tier]) byTier[p.tier].push(p);
+    for (const [tier, spec] of [[1, {color:0xff5fa2, size:9}], [2, {color:0xc77ea0, size:6}]]){
+      const pos = [];
+      for (const p of byTier[tier]){ const v = lonLatToVec3(p.lon, p.lat, 1.0026); pos.push(v.x,v.y,v.z); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      tierLayer.add(new THREE.Points(g, new THREE.PointsMaterial({
+        color: spec.color, size: spec.size, sizeAttenuation:false, transparent:true, opacity: tier===1?1:0.85 })));
+    }
+  }
+  scene.add(tierLayer);
+
+  // ---- UVB latitudes (pure solar geometry, no cloud/ozone/aerosol data) ----
+  // Vitamin D synthesis needs the sun above ~45 deg elevation. At solar noon the elevation is
+  // 90 - |lat - declination|, and the sun's declination swings +-23.44 deg over the year, so
+  // the thresholds are plain parallels: year-round below |lat| 21.6, never above |lat| 68.4.
+  const SUN_OBLIQUITY = 23.44, SUN_MIN_ELEV = 45;
+  const UVB_PARALLELS = [
+    { lat: SUN_MIN_ELEV - SUN_OBLIQUITY, label: 'year-round' },   // 21.56
+    { lat: SUN_MIN_ELEV, label: 'about half the year' },          // 45
+    { lat: SUN_MIN_ELEV + SUN_OBLIQUITY, label: 'never' },        // 68.44
+  ];
+  const sunLayer = new THREE.Group();
+  sunLayer.visible = false;
+  for (const band of UVB_PARALLELS){
+    for (const sign of [1, -1]){
+      const pts = [];
+      for (let lon=-180; lon<=180; lon+=2) pts.push(lonLatToVec3(lon, sign*band.lat, 1.0024));
+      const pos = []; for (let i=0;i<pts.length-1;i++) pos.push(pts[i].x,pts[i].y,pts[i].z, pts[i+1].x,pts[i+1].y,pts[i+1].z);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      sunLayer.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({
+        color: 0xffd24a, transparent:true, opacity: band.lat === SUN_MIN_ELEV - SUN_OBLIQUITY ? 0.95 : 0.5 })));
+    }
+  }
+  scene.add(sunLayer);
+
   // probe crosshair -- real geometry (not a texture dot), so it stays a crisp, small mark at
   // any zoom instead of a baked-in blob that either disappears zoomed out or balloons zoomed in.
   // Its angular size tracks the currently visible arc (see visibleSpanDeg) so it reads as a
@@ -1153,7 +1381,7 @@
     const y = epochs[state.epochIdx];
 
     // contours
-    const arrFor = state.layer==='decl' ? D.D0[y] : D.F[y];
+    const arrFor = state.layer==='decl' ? D.D0[y] : state.layer==='incl' ? D.I0[y] : D.F[y];
     const emphLevel = EMPHASIS[state.layer];
     const hue = state.layer==='field' ? 0xffd9a0 : 0xeef1f6;
     mainContourMat.color.setHex(hue);
@@ -1187,6 +1415,9 @@
     }
 
     passTrack.visible = state.showPass && state.layer==='field';
+    volcanoLayer.visible = state.showVolcanoes;
+    sunLayer.visible = state.showSun;
+    tierLayer.visible = state.showTiers && state.layer==='decl';
   }
   const vectorLineMatEmph = new THREE.MeshBasicMaterial({ color: 0x5ab8ff, side:THREE.DoubleSide });
   const vectorLinesEmph = new THREE.Mesh(new THREE.BufferGeometry(), vectorLineMatEmph);
@@ -1460,7 +1691,10 @@
 
   const passToggle = document.getElementById('passToggle');
   passToggle.hidden = state.layer !== 'field';
+  document.getElementById('tierToggle').hidden = state.layer !== 'decl';
   passToggle.title = `Overlay ${PASS.passes.length} real ${PASS.satellite} measurement passes from ${PASS.date}`;
+  if (VOLCANOES) document.getElementById('volcanoCredit').textContent =
+    `${fmtNum(VOLCANOES.volcanoes.length)} Holocene volcanoes, ${fmtNum(volcanoRecent.length)} with an eruption since 1900; catalogue retrieved ${VOLCANOES.fetched.slice(0,10)}.`;
   document.getElementById('passCredit').textContent =
     `Actual 1 Hz ${PASS.satellite} ${PASS.product.replace('SW_OPER_','')} Level-1b measurements for ${PASS.date} — the most recent complete day ESA had published when this page's data was refreshed (the operational product runs a few days behind real time). Not a model: the real instrument reading, pulled from VirES.`;
   document.querySelectorAll('.layer-tab[data-layer]').forEach(btn=>{
@@ -1469,9 +1703,22 @@
       btn.setAttribute('aria-pressed','true');
       state.layer = btn.dataset.layer;
       passToggle.hidden = state.layer !== 'field'; // only a meaningful option on the field layer
+      tierToggle.hidden = state.layer !== 'decl';
       render();
     });
   });
+
+  function wireOverlayToggle(id, flag){
+    const btn = document.getElementById(id);
+    btn.addEventListener('click', ()=>{
+      state[flag] = !state[flag];
+      btn.setAttribute('aria-pressed', String(state[flag]));
+      render();
+    });
+  }
+  wireOverlayToggle('volcanoToggle', 'showVolcanoes');
+  wireOverlayToggle('sunToggle', 'showSun');
+  wireOverlayToggle('tierToggle', 'showTiers');
 
   passToggle.addEventListener('click', ()=>{
     state.showPass = !state.showPass;
@@ -1511,6 +1758,49 @@
   renderSpark();
 
   // ================= page nav =================
+  // ---- ranked-site tables on the Site factors tab ----
+  // Mag and Dec are the two axes the source defines with explicit numeric thresholds, so they
+  // are recomputed from the live field; a changed score shows the published value struck through.
+  (function renderTierTables(){
+    const host = document.getElementById('tierTables');
+    if (!host || !TIERS) return;
+    const cell = (live, pub) => live === pub
+      ? `<td>${live}</td>`
+      : `<td class="moved">${live}<s>${pub}</s></td>`;
+    const blocks = [1,2].map(tier=>{
+      const rows = TIERS.places.filter(p=>p.tier===tier);
+      if (!rows.length) return '';
+      const body = rows.map(p=>{
+        const L = p.live, S = p.scores;
+        return `<tr>
+          <td>${p.name}</td>
+          ${cell(L.mag, S[0])}${cell(L.dec, S[1])}
+          <td>${S[2]}</td><td>${S[3]}</td><td>${S[4]}</td>
+          ${cell(L.total, p.total)}
+          <td class="live">${(L.D>=0?'+':'')+L.D.toFixed(1)}°</td>
+          <td class="live">${fmtNum(L.F)}</td>
+          <td class="live">${L.uvb_months.toFixed(1)}</td>
+          <td class="live">${L.volcano_km===null?'—':fmtNum(L.volcano_km)}</td>
+          <td class="live">${fmtNum(L.saa_km)}</td>
+        </tr>`;
+      }).join('');
+      return `<div class="tier-block">
+        <h3><span class="pip" style="background:${tier===1?'#ff5fa2':'#c77ea0'}"></span> Tier ${tier} — ${rows.length} sites</h3>
+        <div class="tier-scroll"><table class="tier-table">
+          <thead>
+            <tr><th></th><th colspan="6">score</th><th colspan="5" class="grp">measured now</th></tr>
+            <tr><th>Site</th><th>Mag</th><th>Dec</th><th>UVB</th><th>Vol</th><th>SAA</th><th>Total</th>
+                <th class="grp">D</th><th class="grp">F nT</th><th class="grp">UVB mo</th>
+                <th class="grp">volcano km</th><th class="grp">SAA km</th></tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table></div></div>`;
+    }).join('');
+    const changed = TIERS.places.filter(p=>p.live.mag!==p.scores[0]||p.live.dec!==p.scores[1]).length;
+    host.innerHTML = blocks +
+      `<p class="muted" style="margin-top:2px">Mag and Dec recomputed from the live field at each site; ${changed} of ${TIERS.places.length} sites differ from the published score, shown as <span class="moved-key">new<s>old</s></span>. UVB, Vol and SAA are carried through unchanged — the source gives no numeric thresholds for them — with the measured quantity beside each. Field values are surface, matching the scale the Mag bands use.</p>`;
+  })();
+
   document.querySelectorAll('.page-tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('.page-tab').forEach(b=>b.setAttribute('aria-pressed','false'));
@@ -1518,6 +1808,7 @@
       const page = btn.dataset.page;
       document.getElementById('pageAtlas').hidden = page !== 'atlas';
       document.getElementById('pageLocation').hidden = page !== 'location';
+      document.getElementById('pageFactors').hidden = page !== 'factors';
       if (page === 'location'){ renderSpark(); renderLocationCharts(); }
       if (page === 'atlas'){ resizeRenderer(); }
     });

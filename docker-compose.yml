@@ -1,0 +1,11 @@
+# Local preview:  docker compose up      ->  http://localhost:8080
+# Serves the repo exactly as GitHub Pages does (gzip, correct MIME types), but with
+# caching off so an edit shows up on a plain reload -- no cache-busting query strings.
+services:
+  atlas:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/usr/share/nginx/html:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro

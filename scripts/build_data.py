@@ -5,6 +5,7 @@ spherical-harmonic math, no coefficient files, stdlib-only. Requires VIRES_TOKEN
     python3 scripts/build_data.py --full   # everything, incl. the immutable history (~20 min)
 
 Outputs (data/):
+  (each field file carries F, D at 460 km and D0, I0 at the ellipsoid surface)
   field_history.js   epochs whose values cannot change between refreshes: IGRF-14
                      1900-1995, the IGRF-14 forecast 2027-2030, and CHAOS epochs
                      older than the last three years. Written by --full only, or
@@ -19,6 +20,7 @@ converted before the call and the returned NEC vector rotated back. Satellite
 positions come back geocentric and are converted the other way for plotting.
 """
 import datetime as dt
+import http.client
 import json
 import math
 import os
@@ -70,6 +72,7 @@ HISTORY_EPOCHS = [y for y in EPOCHS if y not in CURRENT_EPOCHS]
 
 FINE_MODEL = "CHAOS-Core,CHAOS-Static"   # internal sources only, no hour-to-hour magnetosphere
 SAA_BOX = (-60.0, 10.0, -100.0, 20.0)    # lat min, lat max, lon min, lon max for the satellite passes
+SUN_OBLIQUITY = 23.44                    # Earth axial tilt, for the UVB month count
 
 MODELS_TEXT = {
     "igrf14": "IGRF-14 (IAGA / NOAA NCEI, public reference model) -- via VirES (vires.services)",
@@ -137,11 +140,17 @@ def wps_execute(identifier, inputs, mime, retries=12):
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 return resp.read()
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+        # URLError/HTTPError are OSError subclasses, but a reset or read timeout mid-response
+        # arrives as a bare ConnectionResetError / TimeoutError / http.client exception and
+        # would otherwise sail straight past the retry loop and kill a 20-minute build.
+        except (OSError, http.client.HTTPException) as e:
+            status = getattr(e, "code", None)
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise  # a bad token or malformed request: retrying just burns eight minutes
             if attempt == retries - 1:
                 raise
             wait = min(60, 2 ** (attempt + 1))
-            print(f"  retry {attempt+1}/{retries-1} after {e}; waiting {wait}s", file=sys.stderr)
+            print(f"  retry {attempt+1}/{retries-1} after {type(e).__name__}: {e}; waiting {wait}s", file=sys.stderr)
             time.sleep(wait)
 
 
@@ -177,6 +186,12 @@ def f_and_d(b_nec_list):
     F = [math.sqrt(x * x + y * y + z * z) for (x, y, z) in b_nec_list]
     D = [math.degrees(math.atan2(y, x)) for (x, y, z) in b_nec_list]
     return F, D
+
+
+def inclination(b_nec_list):
+    """Magnetic dip: angle below horizontal, +90 at the north dip pole, 0 at the dip equator.
+    Isoclinic lines (constant I) run roughly east-west, unlike the north-south agonic line."""
+    return [math.degrees(math.atan2(z, math.hypot(x, y))) for (x, y, z) in b_nec_list]
 
 
 # ---------------------------------------------------------------- epochs
@@ -241,7 +256,7 @@ def build_epochs(epochs, known_F):
     lon_flat = [lo for _ in LATS for lo in LONS]
     n = len(lat_flat)
     print(f"grid: {n} points x {len(epochs)} epochs {epochs[0]}..{epochs[-1]}")
-    F_by, D_by, D0_by, saa = {}, {}, {}, {}
+    F_by, D_by, D0_by, I0_by, saa = {}, {}, {}, {}, {}
     for y in epochs:
         source = SOURCE_OF[y]
         model_id = MODEL_OF[source]
@@ -251,9 +266,11 @@ def build_epochs(epochs, known_F):
         b_gnd = eval_grid(model_id, date_iso, lat_flat, lon_flat, GROUND_ALT_KM)
         F, D = f_and_d(b_sat)
         _, D0 = f_and_d(b_gnd)
+        I0 = inclination(b_gnd)
         F_by[y] = [round(v, 0) for v in F]
         D_by[y] = [round(v, 2) for v in D]
         D0_by[y] = [round(v, 2) for v in D0]
+        I0_by[y] = [round(v, 2) for v in I0]
         k = min(range(n), key=lambda i: F[i])
         saa[str(y)] = refine_saa_minimum(model_id, date_iso, lon_flat[k], lat_flat[k])
         print(f"  {y} ({source}) {time.time()-t0:.1f}s  SAA {saa[str(y)]}")
@@ -292,6 +309,7 @@ def build_epochs(epochs, known_F):
         "F": {str(y): F_by[y] for y in epochs},
         "D": {str(y): D_by[y] for y in epochs},
         "D0": {str(y): D0_by[y] for y in epochs},
+        "I0": {str(y): I0_by[y] for y in epochs},
         "dFdt": {str(y): sv_by[y] for y in epochs},
     }
 
@@ -362,6 +380,146 @@ def build_passes(days_back=14, sampling="PT10S", gap_s=120):
             "fetched": end.isoformat() + "Z", "passes": passes}
 
 
+# ---------------------------------------------------------------- volcanoes
+GVP_WFS = ("https://webservices.volcano.si.edu/geoserver/GVP-VOTW/ows?service=WFS&version=1.0.0"
+           "&request=GetFeature&typeName=GVP-VOTW:Smithsonian_VOTW_Holocene_Volcanoes"
+           "&outputFormat=application%2Fjson")
+
+
+def build_volcanoes():
+    """Smithsonian Global Volcanism Program Holocene volcano list -> [name, lat, lon, lastEruptionYear].
+    Reference data, but eruption years do change, so it rides along with the weekly refresh."""
+    with urllib.request.urlopen(GVP_WFS, timeout=120) as resp:
+        gj = json.loads(resp.read())
+    out = []
+    for feat in gj.get("features", []):
+        p = feat.get("properties", {})
+        try:
+            lon, lat = feat["geometry"]["coordinates"][:2]
+        except (KeyError, TypeError, ValueError):
+            continue
+        year = p.get("Last_Eruption_Year")
+        out.append([p.get("Volcano_Name", "?"), round(float(lat), 3), round(float(lon), 3),
+                    int(year) if isinstance(year, (int, float)) else None])
+    out.sort(key=lambda v: (v[3] is None, -(v[3] or 0)))
+    recent = sum(1 for v in out if v[3] is not None and v[3] >= 1900)
+    print(f"volcanoes: {len(out)} Holocene, {recent} with an eruption since 1900")
+    return {"source": "Smithsonian Institution, Global Volcanism Program -- Holocene Volcano List",
+            "url": "https://volcano.si.edu", "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "fields": ["name", "lat", "lon", "last_eruption_year"], "volcanoes": out}
+
+
+# ---------------------------------------------------------------- ranked sites
+# Tiers, names and the five published scores come from the source document (see RANKED_SITES
+# below). The Dec and Mag axes are the two it defines with explicit numeric thresholds, so they
+# are recomputed here from the live field rather than carried over: the document's own agonic
+# line is a fixed eleven-point polyline matching the line as it stood around 1940, roughly 13
+# degrees east of where zero declination now falls, which is exactly the kind of drift this
+# atlas exists to track. The remaining three axes have no published thresholds and are passed
+# through unchanged, with a measured quantity alongside each so they can be judged directly.
+RANKED_SITES = [
+    # tier, name, lat, lon, published [Mag, Dec, UVB, Vol, SAA], published total
+    (1, "Costa Rica — Guanacaste, Nicoya", 10.30, -85.60, [2, 5, 5, 5, 5], 22),
+    (1, "El Salvador — Pacific coast", 13.50, -89.40, [3, 5, 5, 5, 5], 23),
+    (1, "Nicaragua — Pacific, Ometepe", 11.50, -85.60, [3, 5, 5, 4, 5], 22),
+    (1, "Guatemala highlands", 14.60, -91.00, [3, 5, 5, 5, 5], 23),
+    (2, "Iceland — Westfjords", 65.90, -22.50, [5, 2, 1, 5, 5], 18),
+    (2, "Alaska — Aleutians", 53.00, -168.00, [5, 2, 1, 5, 5], 18),
+    (2, "Philippines — Palawan", 9.80, 118.70, [3, 5, 5, 5, 4], 22),
+    (2, "Kamchatka Peninsula", 56.00, 159.00, [5, 3, 1, 5, 5], 19),
+    (2, "Siberia — central / eastern", 62.00, 105.00, [5, 2, 1, 2, 5], 15),
+    (2, "Canary Islands — La Palma", 28.60, -17.90, [3, 4, 5, 5, 3], 20),
+    (2, "Taiwan — east coast", 23.80, 121.50, [3, 4, 5, 5, 4], 21),
+    (2, "Tierra del Fuego — Ushuaia", -54.80, -68.30, [2, 2, 1, 4, 5], 14),
+    (2, "Chilean Patagonia", -47.00, -73.00, [2, 2, 2, 4, 4], 14),
+    (2, "New Zealand — South Island", -45.00, 170.00, [5, 1, 2, 3, 4], 15),
+    (2, "Washington — Olympic Peninsula", 47.80, -123.80, [4, 2, 2, 4, 4], 16),
+    (2, "Sicily — Etna, Aeolian Is.", 37.75, 15.00, [3, 4, 4, 5, 3], 19),
+    (2, "Panama — Pacific, Azuero", 7.50, -80.50, [3, 5, 5, 2, 4], 19),
+]
+SOURCE_DOC = {
+    "title": "Where to Live - Magnetic Inclination x Declination x UVB x nnEMF (v8, 2026-05-13)",
+    "author": "jespada, after Jack Kruse",
+    "url": "https://gistpreview.github.io/?1308d8d579590c5fec0a736719aa03b6",
+}
+
+
+def mag_score(f_nt):
+    """Published scale: >55,000 = 5, 45-55k = 4, 35-45k = 3, 25-35k = 2, <25,000 (SAA) = 1."""
+    if f_nt > 55000: return 5
+    if f_nt >= 45000: return 4
+    if f_nt >= 35000: return 3
+    if f_nt >= 25000: return 2
+    return 1
+
+
+def dec_score(abs_d):
+    """Published scale: |dec| <2 = 5, 2-5 = 4, 5-10 = 3, 10-20 = 2, >20 = 1."""
+    if abs_d < 2: return 5
+    if abs_d < 5: return 4
+    if abs_d < 10: return 3
+    if abs_d <= 20: return 2
+    return 1
+
+
+def uvb_months(lat):
+    """Months per year the midday sun clears 45 deg elevation -- the quantity the source's UVB
+    column names. Solar noon elevation is 90 - |lat - declination|; declination swings +-23.44."""
+    days = 0
+    for d in range(365):
+        decl = -SUN_OBLIQUITY * math.cos(2 * math.pi * (d + 10) / 365.0)
+        if abs(lat - decl) < 45.0:
+            days += 1
+    return round(days / 30.44, 1)
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def build_ranked_sites(saa_center_now, volcanoes):
+    """One VirES call for surface field at every ranked site, then re-score the two axes the
+    source defines numerically. Surface, not 460 km: the published Mag bands are WMM surface
+    values, and the intensity layer elsewhere in this atlas is deliberately at satellite height."""
+    lat_flat = [s[2] for s in RANKED_SITES]
+    lon_flat = [s[3] for s in RANKED_SITES]
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    b = eval_grid("CHAOS-Core", now, lat_flat, lon_flat, GROUND_ALT_KM)
+    F, Dv = f_and_d(b)
+    Iv = inclination(b)
+    recent = [v for v in volcanoes if v[3] is not None and v[3] >= 1900]
+
+    out = []
+    for (tier, name, lat, lon, scores, total), f, d, i in zip(RANKED_SITES, F, Dv, Iv):
+        vol_km = min(haversine_km(lat, lon, v[1], v[2]) for v in recent) if recent else None
+        live = {
+            "F": round(f), "D": round(d, 1), "I": round(i, 1),
+            "mag": mag_score(f), "dec": dec_score(abs(d)),
+            "uvb_months": uvb_months(lat),
+            "volcano_km": round(vol_km) if vol_km is not None else None,
+            "saa_km": round(haversine_km(lat, lon, saa_center_now[1], saa_center_now[0])),
+        }
+        # recomputed total: the two data-driven axes, plus the three the source does not
+        # define numerically, carried through unchanged
+        live["total"] = live["mag"] + live["dec"] + scores[2] + scores[3] + scores[4]
+        out.append({"tier": tier, "name": name, "lat": lat, "lon": lon,
+                    "scores": scores, "total": total, "live": live})
+
+    moved = [p for p in out if p["live"]["dec"] != p["scores"][1] or p["live"]["mag"] != p["scores"][0]]
+    print(f"ranked sites: {len(out)} ({len(moved)} with a recomputed Mag or Dec score)")
+    for p in moved:
+        print(f"    {p['name']}: Mag {p['scores'][0]}->{p['live']['mag']}  Dec {p['scores'][1]}->{p['live']['dec']}"
+              f"  (|D|={abs(p['live']['D']):.1f} deg, F={p['live']['F']} nT surface)")
+    return {**SOURCE_DOC, "score_axes": ["Mag", "Dec", "UVB", "Vol", "SAA"], "epoch": now,
+            "thresholds": {"mag": ">55000=5, 45-55k=4, 35-45k=3, 25-35k=2, <25000=1",
+                           "dec": "|D|<2=5, 2-5=4, 5-10=3, 10-20=2, >20=1"},
+            "places": out}
+
+
 # ---------------------------------------------------------------- io
 def write_js(path, var_name, data):
     with open(path, "w") as f:
@@ -409,3 +567,17 @@ if __name__ == "__main__":
     write_js("data/field_current.js", "FIELD_CURRENT", cur)
     write_js("data/chaos_fine_data.js", "CHAOS_FINE_DATA", build_fine_grid())
     write_js("data/pass_data.js", "PASS_DATA", build_passes())
+    # a third-party service: never let it fail the field refresh, just keep the previous file
+    volcanoes = None
+    try:
+        vdata = build_volcanoes()
+        volcanoes = vdata["volcanoes"]
+        write_js("data/volcano_data.js", "VOLCANO_DATA", vdata)
+    except Exception as e:
+        print(f"volcano list unavailable ({e}); keeping the existing data/volcano_data.js", file=sys.stderr)
+        prev = read_js("data/volcano_data.js")
+        volcanoes = prev["volcanoes"] if prev else []
+
+    latest = str(cur["meta"]["epochs"][-1])
+    write_js("data/tier_data.js", "TIER_DATA",
+             build_ranked_sites(cur["meta"]["saa_center"][latest], volcanoes))
