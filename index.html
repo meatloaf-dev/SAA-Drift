@@ -358,6 +358,7 @@
           <button class="layer-tab" data-layer="incl" aria-pressed="false">Inclination &amp; dip equator</button>
         </div>
         <div class="layer-tabs">
+          <button class="layer-tab" id="isoclinicToggle" aria-pressed="false" title="Overlay isoclinic lines (constant magnetic dip) and the dip equator on this layer">◇ Isoclinic lines</button>
           <button class="layer-tab" id="volcanoToggle" aria-pressed="false" title="Smithsonian Global Volcanism Program — Holocene volcanoes">🌋 Volcanoes</button>
           <button class="layer-tab" id="sunToggle" aria-pressed="false" title="Latitudes where the midday sun climbs high enough for year-round vitamin D synthesis">☀ UVB latitudes</button>
           <button class="layer-tab" id="tierToggle" aria-pressed="false" title="Tier 1 and 2 locations as ranked in the source document">◆ Tier 1–2 sites</button>
@@ -539,7 +540,7 @@
         </div>
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:linear-gradient(90deg,#a93bc4,#2da97c)"></span> Inclination (I) — runs east–west</div>
-          <p><b>Isoclinic lines</b> — contours of magnetic dip, the angle the field makes with the horizontal. Straight down at the north magnetic pole (+90°), straight up at the south (−90°), and perfectly level along the <b>dip equator</b> (0°). These are the lines that genuinely run <b>east–west</b>, and the dip equator is the one that has been migrating north.</p>
+          <p><b>Isoclinic lines</b> — contours of magnetic dip, the angle the field makes with the horizontal. Straight down at the north magnetic pole (+90°), straight up at the south (−90°), and perfectly level along the <b>dip equator</b> (0°). These are the lines that genuinely run <b>east–west</b>, and the dip equator is the one that has been migrating north. Switch on <b>◇ Isoclinic lines</b> to draw this family over either of the other layers, so isogonic and isoclinic can be read together the way a paper magnetic chart shows them — the agonic line and the dip equator cross over northern South America.</p>
         </div>
       </div>
 
@@ -799,7 +800,7 @@
   // is IGRF-14's predictive secular-variation segment, a forecast. Scrubbing defaults to "today"
   // (the latest real data) and only reaches the forecast years once the toggle is switched on.
   const CUTOFF_IDX = epochs.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos');
-  const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false, showVolcanoes:false, showSun:false, showTiers:false };
+  const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false, showVolcanoes:false, showSun:false, showTiers:false, showIsoclinic:false };
   function maxAllowedIdx(){ return state.showProjection ? epochs.length-1 : CUTOFF_IDX; }
   let playTimer = null;
 
@@ -907,6 +908,11 @@
       volcanoRow = `<div class="row"><span class="swatch" style="background:#ff6b35;height:6px;width:6px;border-radius:50%"></span> volcano, erupted since 1900 (${fmtNum(volcanoRecent.length)})</div>
         <div class="row"><span class="swatch" style="background:#8a5a3c;height:5px;width:5px;border-radius:50%"></span> other Holocene volcano (${fmtNum(volcanoOlder.length)})</div>`;
     }
+    let isoclinicRow = '';
+    if (state.showIsoclinic && state.layer !== 'incl'){
+      isoclinicRow = `<div class="row"><span class="swatch" style="background:#2da97c"></span> isoclinic lines, every ${curTier.inclStep}° — these run east–west</div>
+        <div class="row"><span class="swatch" style="background:#45e0a0"></span> dip equator, 0° inclination</div>`;
+    }
     let tierRow = '';
     if (state.showTiers && state.layer==='decl' && TIERS){
       const n1 = TIERS.places.filter(p=>p.tier===1).length, n2 = TIERS.places.filter(p=>p.tier===2).length;
@@ -927,7 +933,8 @@
       ${passRow}
       ${volcanoRow}
       ${sunRow}
-      ${tierRow}`;
+      ${tierRow}
+      ${isoclinicRow}`;
   }
 
   function fmtNum(n, d=0){ return n.toLocaleString('en-US', {maximumFractionDigits:d, minimumFractionDigits:d}); }
@@ -1267,6 +1274,19 @@
   const mainContourEmph = new THREE.Mesh(new THREE.BufferGeometry(), mainContourEmphMat);
   scene.add(mainContourEmph);
 
+  // a second contour family drawn over the active layer, so the two can be read together the
+  // way a paper magnetic chart shows them: isogonic running north-south, isoclinic east-west.
+  // Dimmer than the primary layer and in the inclination hue, so which family is which stays
+  // obvious; the dip equator gets its own ribbon rather than borrowing the agonic line's blue.
+  const crossContourMat = new THREE.LineBasicMaterial({ color:0x2da97c, transparent:true, opacity:0.5 });
+  const crossContour = new THREE.LineSegments(new THREE.BufferGeometry(), crossContourMat);
+  crossContour.visible = false;
+  scene.add(crossContour);
+  const crossContourEmphMat = new THREE.MeshBasicMaterial({ color:0x45e0a0, side:THREE.DoubleSide });
+  const crossContourEmph = new THREE.Mesh(new THREE.BufferGeometry(), crossContourEmphMat);
+  crossContourEmph.visible = false;
+  scene.add(crossContourEmph);
+
   const saaTrackLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color:0xd9502b }));
   scene.add(saaTrackLine);
   const poleTrackLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color:0x19997f }));
@@ -1395,6 +1415,24 @@
     }
     setGeo(mainContour, pos);
     setGeoTris(mainContourEmph, ribbonPositions(emphSegs, 1.0013, emphWidthWorld()));
+
+    // isoclinic overlay: redundant on the inclination layer, which already draws this family
+    const crossOn = state.showIsoclinic && state.layer !== 'incl';
+    crossContour.visible = crossOn;
+    crossContourEmph.visible = crossOn;
+    if (crossOn){
+      const arrI = D.I0[y];
+      const crossPos = [];
+      let crossEmph = [];
+      for (const lvl of contourLevelsFor('incl', tier)){
+        const segs = marchingSquares(arrI, lvl);
+        if (!segs.length) continue;
+        if (lvl === 0) crossEmph = crossEmph.concat(segs);
+        else crossPos.push(...segsToPositionsR(segs, 1.0012));
+      }
+      setGeo(crossContour, crossPos);
+      setGeoTris(crossContourEmph, ribbonPositions(crossEmph, 1.00135, emphWidthWorld()));
+    }
 
     // SAA track (grows with epoch)
     {
@@ -1692,6 +1730,7 @@
   const passToggle = document.getElementById('passToggle');
   passToggle.hidden = state.layer !== 'field';
   document.getElementById('tierToggle').hidden = state.layer !== 'decl';
+  document.getElementById('isoclinicToggle').hidden = state.layer === 'incl';
   passToggle.title = `Overlay ${PASS.passes.length} real ${PASS.satellite} measurement passes from ${PASS.date}`;
   if (VOLCANOES) document.getElementById('volcanoCredit').textContent =
     `${fmtNum(VOLCANOES.volcanoes.length)} Holocene volcanoes, ${fmtNum(volcanoRecent.length)} with an eruption since 1900; catalogue retrieved ${VOLCANOES.fetched.slice(0,10)}.`;
@@ -1704,6 +1743,7 @@
       state.layer = btn.dataset.layer;
       passToggle.hidden = state.layer !== 'field'; // only a meaningful option on the field layer
       tierToggle.hidden = state.layer !== 'decl';
+      isoclinicToggle.hidden = state.layer === 'incl';
       render();
     });
   });
@@ -1719,6 +1759,7 @@
   wireOverlayToggle('volcanoToggle', 'showVolcanoes');
   wireOverlayToggle('sunToggle', 'showSun');
   wireOverlayToggle('tierToggle', 'showTiers');
+  wireOverlayToggle('isoclinicToggle', 'showIsoclinic');
 
   passToggle.addEventListener('click', ()=>{
     state.showPass = !state.showPass;

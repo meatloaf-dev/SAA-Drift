@@ -13,8 +13,12 @@ Three magnetic layers, which are easy to confuse:
 | Declination (D) | isogonic, degrees | north–south | agonic line |
 | Inclination (I) | isoclinic, degrees of dip | **east–west** | dip equator |
 
-Two optional overlays: Smithsonian GVP volcanoes, and the UVB latitude bounds
-(solar geometry only — no cloud, ozone, aerosol or altitude data).
+The isoclinic family can also be overlaid on either other layer (`◇ Isoclinic
+lines`), so isogonic and isoclinic read together as on a paper chart.
+
+Optional overlays: Smithsonian GVP volcanoes, the UVB latitude bounds (solar
+geometry only — no cloud, ozone, aerosol or altitude data), and the ranked
+Tier 1–2 sites.
 
 ## How it stays current
 
