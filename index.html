@@ -93,6 +93,13 @@
     transition:border-color .15s, color .15s, background .15s;
   }
   .layer-tab:hover{ color:var(--ink); border-color:var(--ink-faint); }
+  .cdc-select{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--ink);
+    border-radius:9px; padding:7px 10px; font-size:12.5px; font-weight:600;
+    font-family:var(--font-body); cursor:pointer;
+  }
+  .cdc-select:hover{ border-color:var(--accent); }
+  .cdc-select[hidden]{ display:none; }
   .layer-tab[aria-pressed="true"]{
     background:var(--accent-soft); border-color:var(--accent); color:var(--ink);
   }
@@ -358,6 +365,8 @@
           <button class="layer-tab" data-layer="incl" aria-pressed="false">Inclination &amp; dip equator</button>
         </div>
         <div class="layer-tabs">
+          <button class="layer-tab" id="cdcToggle" aria-pressed="false" title="CDC age-adjusted death rates by state, 1999-2017">🏥 CDC mortality</button>
+          <select id="cdcCause" class="cdc-select" hidden aria-label="Cause of death"></select>
           <button class="layer-tab" id="isoclinicToggle" aria-pressed="false" title="Overlay isoclinic lines (constant magnetic dip) and the dip equator on this layer">◇ Isoclinic lines</button>
           <button class="layer-tab" id="volcanoToggle" aria-pressed="false" title="Smithsonian Global Volcanism Program — Holocene volcanoes">🌋 Volcanoes</button>
           <button class="layer-tab" id="sunToggle" aria-pressed="false" title="Latitudes where the midday sun climbs high enough for year-round vitamin D synthesis">☀ UVB latitudes</button>
@@ -477,6 +486,10 @@
         NOAA NCEI historical &amp; predicted dip&#8209;pole positions, 1590–2025 (<code>ngdc.noaa.gov/geomag/data/poles</code>).
       </div>
       <div class="src">
+        <b>CDC mortality (toggle, declination layer)</b>
+        CDC/NCHS, <a href="https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu" target="_blank" rel="noopener">Leading Causes of Death: United States</a> (<code>bi63&#8209;dtpu</code>) — age&#8209;adjusted deaths per 100,000, standardised to the 2000 US population, by state and year. ICD&#8209;10 coding, consistent across 1999–2017; the ICD&#8209;9 to ICD&#8209;10 change in 1999 altered how several causes are coded, so earlier years are not comparable and are not included.
+      </div>
+      <div class="src">
         <b>US state lines</b>
         US Census Bureau cartographic boundaries via <code>us-atlas</code> (states&#8209;10m), public domain. Interior boundaries only — the national outline and coastline come from the Natural Earth data below — simplified to ~2,400 points and faded in as you zoom past roughly 100° of visible arc.
       </div>
@@ -555,6 +568,10 @@
           <p>Every Holocene volcano in the Smithsonian Institution's <a href="https://volcano.si.edu" target="_blank" rel="noopener">Global Volcanism Program</a> catalogue, with those that have erupted since 1900 picked out brighter. Refreshed on the same weekly schedule as the field data, so eruption years stay current.</p>
         </div>
         <div class="factor">
+          <div class="factor-head"><span class="sw" style="background:linear-gradient(90deg,hsl(285 22% 80%),hsl(285 70% 32%))"></span> CDC mortality</div>
+          <p>Age-adjusted death rates by state from CDC/NCHS, on the declination layer, for heart disease, cancer, diabetes and Alzheimer's. The year follows the epoch slider across the <b>1999–2017</b> span the data covers, holding at the nearest end outside it, so the map moves through time with the field. Rates are <b>deaths per 100,000 standardised to the 2000 US population</b> — mortality, not prevalence — and the colour scale is fixed across all years, so the steep national decline in heart disease is visible as you scrub rather than being normalised away. Dementia is not coded separately from Alzheimer's in this file.</p>
+        </div>
+        <div class="factor">
           <div class="factor-head"><span class="sw" style="background:#ffd24a"></span> UVB latitudes</div>
           <p>Where the midday sun climbs above ~45° elevation, the threshold usually cited for vitamin&nbsp;D synthesis in skin. This is <b>pure solar geometry</b> — latitude and the 23.44° tilt of Earth's axis, nothing else. It takes no account of cloud, ozone, altitude or aerosol.</p>
         </div>
@@ -584,6 +601,7 @@
 <script src="data/pole_data.js"></script>
 <script src="data/country_data.js"></script>
 <script src="data/state_data.js"></script>
+<script src="data/cdc_data.js"></script>
 <script src="data/cities_data.js"></script>
 <script src="data/zip_data.js"></script>
 <script src="data/pass_data.js"></script>
@@ -605,7 +623,7 @@
     return out;
   }
   const D = mergeField(window.FIELD_HISTORY, window.FIELD_CURRENT);
-  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, STATES = window.STATE_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA, VOLCANOES = window.VOLCANO_DATA, TIERS = window.TIER_DATA;
+  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, STATES = window.STATE_DATA, CDC = window.CDC_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA, VOLCANOES = window.VOLCANO_DATA, TIERS = window.TIER_DATA;
   const meta = D.meta;
   const lats = meta.lats, lons = meta.lons;
   const latN = lats.length, lonN = lons.length;
@@ -805,7 +823,7 @@
   // is IGRF-14's predictive secular-variation segment, a forecast. Scrubbing defaults to "today"
   // (the latest real data) and only reaches the forecast years once the toggle is switched on.
   const CUTOFF_IDX = epochs.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos');
-  const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false, showVolcanoes:false, showSun:false, showTiers:false, showIsoclinic:false };
+  const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false, showVolcanoes:false, showSun:false, showTiers:false, showIsoclinic:false, showCDC:false, cdcCause:'heart' };
   function maxAllowedIdx(){ return state.showProjection ? epochs.length-1 : CUTOFF_IDX; }
   let playTimer = null;
 
@@ -845,6 +863,8 @@
     ctx.drawImage(off, -halfCell, 0, w, h);
     ctx.drawImage(off, w-halfCell, 0, w, h);
 
+    if (state.showCDC && state.layer === 'decl') paintCDC();
+
     function dot(lon, lat, color, r){
       const [x,yy] = lonLatToXY(lon, lat);
       ctx.fillStyle = color;
@@ -867,6 +887,59 @@
     updateLegend();
     updateStats();
     if (state.probe) updateProbeReadout();
+  }
+
+  // Sequential single hue: the quantity is a magnitude, so lightness carries it and the hue
+  // stays fixed. Violet keeps it clear of every line colour already on this layer.
+  function cdcColor(t){
+    t = Math.max(0, Math.min(1, t));
+    return hsl(285, lerp(22, 70, t), lerp(80, 32, t));
+  }
+  // CDC covers 1999-2017; outside that the nearest end is shown and the legend says so
+  function cdcYearIndex(){
+    const ys = CDC.years, y = epochs[state.epochIdx];
+    if (y <= ys[0]) return 0;
+    if (y >= ys[ys.length-1]) return ys.length - 1;
+    const i = ys.indexOf(y);
+    return i >= 0 ? i : ys.length - 1;
+  }
+  function paintCDC(){
+    const cause = CDC.causes[state.cdcCause];
+    if (!cause || !STATES || !STATES.polygons) return;
+    const yi = cdcYearIndex();
+    // scaled across the whole 1999-2017 range, not per-year, so a colour means the same rate
+    // however you scrub -- otherwise the map would renormalise and hide the national decline
+    const lo = cause.min, span = (cause.max - cause.min) || 1;
+    ctx.save();
+    ctx.globalAlpha = 0.82;
+    for (const name in STATES.polygons){
+      const series = cause.states[name];
+      if (!series) continue;
+      const v = series[yi];
+      if (v === null || v === undefined) continue;
+      ctx.fillStyle = cdcColor((v - lo) / span);
+      for (const ring of STATES.polygons[name]){
+        // unwrap longitude along the ring so the Aleutians don't smear across the texture,
+        // then draw the wrapped copy too
+        let prevLon = ring[0][0], off = 0;
+        const xs = [], ys2 = [];
+        for (const [lon, lat] of ring){
+          let d = lon - prevLon;
+          if (d > 180) off -= 360; else if (d < -180) off += 360;
+          prevLon = lon;
+          const [x, yy] = lonLatToXY(lon + off, lat);
+          xs.push(x); ys2.push(yy);
+        }
+        for (const shift of [0, -TEX_W, TEX_W]){
+          ctx.beginPath();
+          ctx.moveTo(xs[0] + shift, ys2[0]);
+          for (let i = 1; i < xs.length; i++) ctx.lineTo(xs[i] + shift, ys2[i]);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
   }
 
   function updateLegend(){
@@ -916,6 +989,19 @@
     lastStatesShown = stateLineOpacity() > 0.02;
     const stateRow = lastStatesShown
       ? `<div class="row"><span class="swatch" style="background:rgba(238,241,246,.3)"></span> US state line</div>` : '';
+    let cdcRow = '';
+    if (state.showCDC && state.layer === 'decl' && CDC){
+      const cause = CDC.causes[state.cdcCause];
+      const yi = cdcYearIndex(), shown = CDC.years[yi], epochYear = epochs[state.epochIdx];
+      const clamp = shown !== epochYear
+        ? ` <span style="color:var(--ink-faint)">— nearest to ${epochYear}; CDC covers ${CDC.years[0]}–${CDC.years[CDC.years.length-1]}</span>` : '';
+      cdcRow = `<div class="row" style="display:block;max-width:250px">
+          <div style="color:var(--ink);font-weight:600;margin-bottom:3px">${cause.label}, ${shown}${clamp}</div>
+          <div style="height:9px;border-radius:3px;background:linear-gradient(90deg,${cdcColor(0)},${cdcColor(.5)},${cdcColor(1)})"></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--ink-faint)">
+            <span>${cause.min}</span><span>age-adjusted deaths per 100k</span><span>${cause.max}</span></div>
+        </div>`;
+    }
     let isoclinicRow = '';
     if (state.showIsoclinic && state.layer !== 'incl'){
       isoclinicRow = `<div class="row"><span class="swatch" style="background:#2da97c"></span> isoclinic lines, every ${curTier.inclStep}° — these run east–west</div>
@@ -943,7 +1029,8 @@
       ${volcanoRow}
       ${sunRow}
       ${tierRow}
-      ${isoclinicRow}`;
+      ${isoclinicRow}
+      ${cdcRow}`;
   }
 
   function fmtNum(n, d=0){ return n.toLocaleString('en-US', {maximumFractionDigits:d, minimumFractionDigits:d}); }
@@ -1798,6 +1885,7 @@
       passToggle.hidden = state.layer !== 'field'; // only a meaningful option on the field layer
       tierToggle.hidden = state.layer !== 'decl';
       isoclinicToggle.hidden = state.layer === 'incl';
+      syncCdcUI();
       render();
     });
   });
@@ -1807,6 +1895,7 @@
     btn.addEventListener('click', ()=>{
       state[flag] = !state[flag];
       btn.setAttribute('aria-pressed', String(state[flag]));
+      syncCdcUI();
       render();
     });
   }
@@ -1814,6 +1903,24 @@
   wireOverlayToggle('sunToggle', 'showSun');
   wireOverlayToggle('tierToggle', 'showTiers');
   wireOverlayToggle('isoclinicToggle', 'showIsoclinic');
+  wireOverlayToggle('cdcToggle', 'showCDC');
+
+  // cause picker, only meaningful while the overlay is on and only on the declination layer
+  const cdcSelect = document.getElementById('cdcCause');
+  if (CDC){
+    cdcSelect.innerHTML = ['heart','cancer','diabetes','alzheimers']
+      .filter(k => CDC.causes[k])
+      .map(k => `<option value="${k}">${CDC.causes[k].label}</option>`).join('');
+    cdcSelect.value = state.cdcCause;
+    cdcSelect.addEventListener('change', ()=>{ state.cdcCause = cdcSelect.value; render(); });
+  }
+  function syncCdcUI(){
+    const on = state.showCDC && state.layer === 'decl';
+    document.getElementById('cdcToggle').hidden = state.layer !== 'decl';
+    cdcSelect.hidden = !on;
+  }
+
+  syncCdcUI();
 
   passToggle.addEventListener('click', ()=>{
     state.showPass = !state.showPass;
