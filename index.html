@@ -487,7 +487,7 @@
       </div>
       <div class="src">
         <b>CDC mortality (toggle, declination layer)</b>
-        CDC/NCHS, <a href="https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu" target="_blank" rel="noopener">Leading Causes of Death: United States</a> (<code>bi63&#8209;dtpu</code>) — age&#8209;adjusted deaths per 100,000, standardised to the 2000 US population, by state and year. ICD&#8209;10 coding, consistent across 1999–2017; the ICD&#8209;9 to ICD&#8209;10 change in 1999 altered how several causes are coded, so earlier years are not comparable and are not included.
+        CDC/NCHS, <a href="https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu" target="_blank" rel="noopener">Leading Causes of Death: United States</a> (<code>bi63&#8209;dtpu</code>) — age&#8209;adjusted deaths per 100,000, standardised to the 2000 US population, by state and year. ICD&#8209;10 coding, consistent across 1999–2017; the ICD&#8209;9 to ICD&#8209;10 change in 1999 altered how several causes are coded, so earlier years are not comparable and are not included. Outside that span no state map is drawn. For heart disease and cancer the legend falls back to CDC/NCHS <a href="https://data.cdc.gov/NCHS/NCHS-Age-adjusted-Death-Rates-for-Selected-Major-Ca/6rkc-nb2q" target="_blank" rel="noopener">Age&#8209;adjusted Death Rates for Selected Major Causes</a> (<code>6rkc&#8209;nb2q</code>), a United States total running 1900–2018.
       </div>
       <div class="src">
         <b>US state lines</b>
@@ -569,7 +569,8 @@
         </div>
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:linear-gradient(90deg,hsl(285 22% 80%),hsl(285 70% 32%))"></span> CDC mortality</div>
-          <p>Age-adjusted death rates by state from CDC/NCHS, on the declination layer, for heart disease, cancer, diabetes and Alzheimer's. The year follows the epoch slider across the <b>1999–2017</b> span the data covers, holding at the nearest end outside it, so the map moves through time with the field. Rates are <b>deaths per 100,000 standardised to the 2000 US population</b> — mortality, not prevalence — and the colour scale is fixed across all years, so the steep national decline in heart disease is visible as you scrub rather than being normalised away. Dementia is not coded separately from Alzheimer's in this file.</p>
+          <p>Age-adjusted death rates by state from CDC/NCHS, on the declination layer, for heart disease, cancer, diabetes and Alzheimer's. The year follows the epoch slider across the <b>1999–2017</b> span the state data covers, so the map moves through time with the field. Rates are <b>deaths per 100,000 standardised to the 2000 US population</b> — mortality, not prevalence — and the colour scale is fixed across all years, so the steep national decline in heart disease is visible as you scrub rather than being normalised away.</p>
+          <p>Outside 1999–2017 <b>nothing is drawn</b>. CDC publishes no state breakdown before 1999, and painting the nearest year instead would show a filled map for epochs that have no data behind them. For heart disease and cancer a national series does reach back to 1900, so the legend gives that figure instead — which is how you can see heart-disease mortality rise to its 1950 peak of 589 per 100,000 and fall to 164 by 2018. Diabetes and Alzheimer's have no comparable long series. Dementia is not coded separately from Alzheimer's in this file.</p>
         </div>
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:#ffd24a"></span> UVB latitudes</div>
@@ -895,18 +896,25 @@
     t = Math.max(0, Math.min(1, t));
     return hsl(285, lerp(22, 70, t), lerp(80, 32, t));
   }
-  // CDC covers 1999-2017; outside that the nearest end is shown and the legend says so
+  // The state series exists for 1999-2017 only. Outside it there is no index and nothing is
+  // painted: clamping to the nearest year would fill the whole map for, say, 1950, and a
+  // painted map reads as data no matter what the caption underneath it says.
   function cdcYearIndex(){
-    const ys = CDC.years, y = epochs[state.epochIdx];
-    if (y <= ys[0]) return 0;
-    if (y >= ys[ys.length-1]) return ys.length - 1;
-    const i = ys.indexOf(y);
-    return i >= 0 ? i : ys.length - 1;
+    const i = CDC.years.indexOf(epochs[state.epochIdx]);
+    return i >= 0 ? i : null;
+  }
+  // national age-adjusted rate for the current epoch, where that longer series reaches
+  function cdcNationalRate(){
+    const ser = CDC.national_long && CDC.national_long[state.cdcCause];
+    if (!ser) return null;
+    const i = ser.years.indexOf(epochs[state.epochIdx]);
+    return i >= 0 ? ser.rates[i] : null;
   }
   function paintCDC(){
     const cause = CDC.causes[state.cdcCause];
     if (!cause || !STATES || !STATES.polygons) return;
     const yi = cdcYearIndex();
+    if (yi === null) return;
     // scaled across the whole 1999-2017 range, not per-year, so a colour means the same rate
     // however you scrub -- otherwise the map would renormalise and hide the national decline
     const lo = cause.min, span = (cause.max - cause.min) || 1;
@@ -992,15 +1000,29 @@
     let cdcRow = '';
     if (state.showCDC && state.layer === 'decl' && CDC){
       const cause = CDC.causes[state.cdcCause];
-      const yi = cdcYearIndex(), shown = CDC.years[yi], epochYear = epochs[state.epochIdx];
-      const clamp = shown !== epochYear
-        ? ` <span style="color:var(--ink-faint)">— nearest to ${epochYear}; CDC covers ${CDC.years[0]}–${CDC.years[CDC.years.length-1]}</span>` : '';
-      cdcRow = `<div class="row" style="display:block;max-width:250px">
-          <div style="color:var(--ink);font-weight:600;margin-bottom:3px">${cause.label}, ${shown}${clamp}</div>
-          <div style="height:9px;border-radius:3px;background:linear-gradient(90deg,${cdcColor(0)},${cdcColor(.5)},${cdcColor(1)})"></div>
-          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--ink-faint)">
-            <span>${cause.min}</span><span>age-adjusted deaths per 100k</span><span>${cause.max}</span></div>
-        </div>`;
+      const yi = cdcYearIndex(), epochYear = epochs[state.epochIdx];
+      const span = `${CDC.years[0]}–${CDC.years[CDC.years.length-1]}`;
+      if (yi !== null){
+        cdcRow = `<div class="row" style="display:block;max-width:250px">
+            <div style="color:var(--ink);font-weight:600;margin-bottom:3px">${cause.label}, ${epochYear}</div>
+            <div style="height:9px;border-radius:3px;background:linear-gradient(90deg,${cdcColor(0)},${cdcColor(.5)},${cdcColor(1)})"></div>
+            <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--ink-faint)">
+              <span>${cause.min}</span><span>age-adjusted deaths per 100k</span><span>${cause.max}</span></div>
+          </div>`;
+      } else {
+        const nat = cdcNationalRate();
+        const natSer = CDC.national_long && CDC.national_long[state.cdcCause];
+        const natRangeNote = natSer
+          ? `The national series for this cause runs ${natSer.years[0]}–${natSer.years[natSer.years.length-1]}, so it has no figure for ${epochYear}.`
+          : `No national series published for this cause outside ${span}.`;
+        cdcRow = `<div class="row" style="display:block;max-width:250px">
+            <div style="color:var(--ink);font-weight:600">${cause.label}, ${epochYear}</div>
+            <div style="color:var(--ink-faint);font-size:10px;margin-top:2px">No state data — CDC's state series covers ${span} only, so nothing is drawn.</div>
+            ${nat !== null
+              ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--ink);margin-top:4px">US national ${epochYear}: ${nat} per 100k</div>`
+              : `<div style="color:var(--ink-faint);font-size:10px;margin-top:2px">${natRangeNote}</div>`}
+          </div>`;
+      }
     }
     let isoclinicRow = '';
     if (state.showIsoclinic && state.layer !== 'incl'){
@@ -1890,12 +1912,13 @@
     });
   });
 
-  function wireOverlayToggle(id, flag){
+  function wireOverlayToggle(id, flag, afterToggle){
     const btn = document.getElementById(id);
     btn.addEventListener('click', ()=>{
       state[flag] = !state[flag];
       btn.setAttribute('aria-pressed', String(state[flag]));
       syncCdcUI();
+      if (afterToggle) afterToggle();
       render();
     });
   }
@@ -1903,7 +1926,20 @@
   wireOverlayToggle('sunToggle', 'showSun');
   wireOverlayToggle('tierToggle', 'showTiers');
   wireOverlayToggle('isoclinicToggle', 'showIsoclinic');
-  wireOverlayToggle('cdcToggle', 'showCDC');
+  wireOverlayToggle('cdcToggle', 'showCDC', ()=>{
+    // the default epoch sits outside the state series, so switching the overlay on would
+    // otherwise paint nothing. Move to the nearest year that has data -- the slider visibly
+    // jumps, so this reads as "here is where the data is", not as data appearing from nowhere.
+    if (!state.showCDC || !CDC || cdcYearIndex() !== null) return;
+    const ys = CDC.years, y = epochs[state.epochIdx];
+    const target = y < ys[0] ? ys[0] : ys[ys.length - 1];
+    const idx = epochs.indexOf(target);
+    if (idx >= 0 && idx <= maxAllowedIdx()){
+      state.epochIdx = idx;
+      slider.value = idx;
+      renderSpark();
+    }
+  });
 
   // cause picker, only meaningful while the overlay is on and only on the declination layer
   const cdcSelect = document.getElementById('cdcCause');

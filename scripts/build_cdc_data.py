@@ -16,6 +16,11 @@ import urllib.parse
 import urllib.request
 
 API = "https://data.cdc.gov/resource/bi63-dtpu.json"
+# National-only, but age-adjusted back to 1900 -- the one CDC series that spans the atlas's
+# whole epoch range. No state breakdown exists publicly before 1999, so for earlier epochs the
+# page shows this national figure instead of painting a map it has no data for.
+API_LONG = "https://data.cdc.gov/resource/6rkc-nb2q.json"
+LONG_CAUSES = {"Heart Disease": "heart", "Cancer": "cancer"}
 OUT = "data/cdc_data.js"
 # the four the atlas exposes, plus the all-cause baseline to read them against
 CAUSES = {
@@ -41,6 +46,21 @@ def fetch_all():
         if len(batch) < limit:
             return rows
         offset += limit
+
+
+def fetch_long():
+    """National age-adjusted rates 1900-2018, for the causes that series covers."""
+    out = {}
+    with urllib.request.urlopen(f"{API_LONG}?$limit=5000", timeout=120) as resp:
+        for r in json.loads(resp.read()):
+            key = LONG_CAUSES.get(r.get("leading_causes"))
+            if not key:
+                continue
+            try:
+                out.setdefault(key, {})[int(r["year"])] = float(r["age_adjusted_death_rate"])
+            except (TypeError, ValueError, KeyError):
+                continue
+    return out
 
 
 def main():
@@ -84,7 +104,18 @@ def main():
         }
         print(f"    {key:11} range {out_causes[key]['min']}-{out_causes[key]['max']} per 100k")
 
+    print(f"fetching {API_LONG} (national, long series)")
+    long_series = fetch_long()
+    long_out = {}
+    for key, by_year in long_series.items():
+        yrs = sorted(by_year)
+        long_out[key] = {"years": yrs, "rates": [round(by_year[y], 1) for y in yrs]}
+        print(f"    {key:11} national {yrs[0]}-{yrs[-1]}, "
+              f"{by_year[yrs[0]]:.0f} -> peak {max(by_year.values()):.0f} -> {by_year[yrs[-1]]:.0f} per 100k")
+
     doc = {
+        "national_long": long_out,
+        "national_long_source": "CDC/NCHS, Age-adjusted Death Rates for Selected Major Causes of Death (6rkc-nb2q), 1900-2018, United States total",
         "source": "CDC/NCHS, Leading Causes of Death: United States (bi63-dtpu)",
         "url": "https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu",
         "measure": "age-adjusted deaths per 100,000, standardised to the 2000 US population",
