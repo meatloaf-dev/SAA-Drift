@@ -42,9 +42,12 @@ lean for years:
 | `data/volcano_data.js` | Smithsonian GVP Holocene volcano list (name, position, last eruption) | weekly |
 | `data/tier_data.js` | ranked sites from the source document, with the Mag and Dec axes re-scored from the live field | weekly |
 | `data/pass_data.js` | the most recent complete day of real Swarm-A 1 Hz measurements over the anomaly (ESA publishes these ~4 days behind real time) | weekly |
-| `pole_data.js`, `country_data.js`, `cities_data.js`, `zip_data.js` | static reference data | never |
+| `pole_data.js`, `country_data.js`, `state_data.js`, `cities_data.js`, `zip_data.js` | static reference data | never |
 
 A weekly run makes ~45 API calls (~4 min); a full rebuild ~230 (~20 min).
+
+US state lines (interior boundaries, Census via us-atlas) fade in as you zoom
+past ~100° of visible arc; rebuild with `python3 scripts/build_state_lines.py`.
 
 ## Local preview
 

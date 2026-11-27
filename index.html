@@ -477,6 +477,10 @@
         NOAA NCEI historical &amp; predicted dip&#8209;pole positions, 1590–2025 (<code>ngdc.noaa.gov/geomag/data/poles</code>).
       </div>
       <div class="src">
+        <b>US state lines</b>
+        US Census Bureau cartographic boundaries via <code>us-atlas</code> (states&#8209;10m), public domain. Interior boundaries only — the national outline and coastline come from the Natural Earth data below — simplified to ~2,400 points and faded in as you zoom past roughly 100° of visible arc.
+      </div>
+      <div class="src">
         <b>Coastlines &amp; borders</b>
         Natural Earth 1:10m admin&#8209;0 countries, via <code>world-atlas</code> — coastline and political borders separated using shared&#8209;edge topology, simplified from ~480k to ~70k points.
       </div>
@@ -579,6 +583,7 @@
 <script src="data/field_current.js"></script>
 <script src="data/pole_data.js"></script>
 <script src="data/country_data.js"></script>
+<script src="data/state_data.js"></script>
 <script src="data/cities_data.js"></script>
 <script src="data/zip_data.js"></script>
 <script src="data/pass_data.js"></script>
@@ -600,7 +605,7 @@
     return out;
   }
   const D = mergeField(window.FIELD_HISTORY, window.FIELD_CURRENT);
-  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA, VOLCANOES = window.VOLCANO_DATA, TIERS = window.TIER_DATA;
+  const POLE = window.POLE_DATA, COUNTRIES = window.COUNTRY_DATA, STATES = window.STATE_DATA, CITIES = window.CITIES_DATA, ZIPS = window.ZIP_DATA, PASS = window.PASS_DATA, CHAOSFINE = window.CHAOS_FINE_DATA, VOLCANOES = window.VOLCANO_DATA, TIERS = window.TIER_DATA;
   const meta = D.meta;
   const lats = meta.lats, lons = meta.lons;
   const latN = lats.length, lonN = lons.length;
@@ -908,6 +913,9 @@
       volcanoRow = `<div class="row"><span class="swatch" style="background:#ff6b35;height:6px;width:6px;border-radius:50%"></span> volcano, erupted since 1900 (${fmtNum(volcanoRecent.length)})</div>
         <div class="row"><span class="swatch" style="background:#8a5a3c;height:5px;width:5px;border-radius:50%"></span> other Holocene volcano (${fmtNum(volcanoOlder.length)})</div>`;
     }
+    lastStatesShown = stateLineOpacity() > 0.02;
+    const stateRow = lastStatesShown
+      ? `<div class="row"><span class="swatch" style="background:rgba(238,241,246,.3)"></span> US state line</div>` : '';
     let isoclinicRow = '';
     if (state.showIsoclinic && state.layer !== 'incl'){
       isoclinicRow = `<div class="row"><span class="swatch" style="background:#2da97c"></span> isoclinic lines, every ${curTier.inclStep}° — these run east–west</div>
@@ -928,6 +936,7 @@
       ${tight}
       <div class="row"><span class="swatch" style="background:rgba(238,241,246,.9)"></span> coastline</div>
       <div class="row"><span class="swatch" style="background:rgba(238,241,246,.4)"></span> country border</div>
+      ${stateRow}
       <div class="row"><span class="swatch" style="background:#d9502b"></span> SAA centre track</div>
       <div class="row"><span class="swatch" style="background:#19997f"></span> N magnetic pole track</div>
       ${passRow}
@@ -1193,6 +1202,31 @@
   vectorBorderGeo.setAttribute('position', new THREE.Float32BufferAttribute(polylinesToSegPositions(COUNTRIES.borders, 1.0005), 3));
   const vectorBorders = new THREE.LineSegments(vectorBorderGeo, new THREE.LineBasicMaterial({ color:0xeef1f6, transparent:true, opacity:0.4 }));
   scene.add(vectorBorders);
+
+  // US state lines: a finer subdivision than national borders, so they fade in only once the
+  // view is tight enough for them to mean anything, and stay dimmer than the borders above.
+  const STATE_FADE_FROM = 88, STATE_FADE_TO = 50;    // degrees of visible arc
+  const STATE_MAX_OPACITY = 0.3;
+  const stateBorderMat = new THREE.LineBasicMaterial({ color:0xeef1f6, transparent:true, opacity:0 });
+  let vectorStates = null;
+  if (STATES && STATES.borders){
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(polylinesToSegPositions(STATES.borders, 1.0004), 3));
+    vectorStates = new THREE.LineSegments(geo, stateBorderMat);
+    vectorStates.visible = false;
+    scene.add(vectorStates);
+  }
+  function stateLineOpacity(){
+    const span = visibleSpanDeg(cam.dist, camera.fov);
+    const t = (STATE_FADE_FROM - span) / (STATE_FADE_FROM - STATE_FADE_TO);
+    return Math.max(0, Math.min(1, t)) * STATE_MAX_OPACITY;
+  }
+  function updateStateLines(){
+    if (!vectorStates) return;
+    const o = stateLineOpacity();
+    vectorStates.visible = o > 0.02;
+    stateBorderMat.opacity = o;
+  }
 
   // graticule -- also real vector lines now, not baked into the texture
   {
@@ -1631,13 +1665,14 @@
   globeHost.addEventListener('pointercancel', endDrag);
   // redraw the texture (new resolution + contour density) only when zoom actually crosses
   // into a new LOD tier -- not on every wheel tick, so a smooth zoom gesture stays cheap.
-  let lodRenderPending = false;
+  let lodRenderPending = false, lastStatesShown = false;
   function scheduleLODCheck(){
     if (lodRenderPending) return;
     lodRenderPending = true;
     requestAnimationFrame(()=>{
       lodRenderPending = false;
-      if (lodFor(cam.dist).texW !== TEX_W) render();
+      const statesShown = stateLineOpacity() > 0.02;
+      if (lodFor(cam.dist).texW !== TEX_W || statesShown !== lastStatesShown) render();
     });
   }
 
@@ -1697,6 +1732,7 @@
     }
     applyCamera();
     maybeUpdateVectorContours();
+    updateStateLines();
     if (state.probe) updateProbeMarker();
     renderer.render(scene, camera);
   }
