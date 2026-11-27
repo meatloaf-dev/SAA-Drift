@@ -187,6 +187,15 @@
     -webkit-appearance:none; appearance:none; flex:1; height:4px;
     background:var(--border); border-radius:2px; outline-offset:4px;
   }
+  /* when an overlay only covers part of the timeline, shade that span on the track itself */
+  input[type="range"].has-coverage{
+    background:linear-gradient(90deg,
+      var(--border) 0 var(--cov-from),
+      hsl(285 55% 46%) var(--cov-from) var(--cov-to),
+      var(--border) var(--cov-to) 100%);
+  }
+  .coverage-note{ font-size:10.5px; color:var(--ink-faint); margin-top:5px; }
+  .coverage-note b{ color:#c78fe0; font-weight:600; }
   input[type="range"]::-webkit-slider-thumb{
     -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
     background:var(--accent); border:2px solid #0a0e13; cursor:pointer; margin-top:-5px;
@@ -416,6 +425,7 @@
           <button id="playBtn" aria-label="Play timelapse">▶</button>
           <input type="range" id="epochSlider" min="0" max="0" step="1" value="0" aria-label="Epoch scrubber">
         </div>
+        <div class="coverage-note" id="coverageNote" hidden></div>
         <div class="epoch-readout">
           <span class="year" id="yearLabel">—</span>
           <span class="era-badge" id="eraBadge">—</span>
@@ -570,7 +580,9 @@
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:linear-gradient(90deg,hsl(285 22% 80%),hsl(285 70% 32%))"></span> CDC mortality</div>
           <p>Age-adjusted death rates by state from CDC/NCHS, on the declination layer, for heart disease, cancer, diabetes and Alzheimer's. The year follows the epoch slider across the <b>1999–2017</b> span the state data covers, so the map moves through time with the field. Rates are <b>deaths per 100,000 standardised to the 2000 US population</b> — mortality, not prevalence — and the colour scale is fixed across all years, so the steep national decline in heart disease is visible as you scrub rather than being normalised away.</p>
-          <p>Outside 1999–2017 <b>nothing is drawn</b>. CDC publishes no state breakdown before 1999, and painting the nearest year instead would show a filled map for epochs that have no data behind them. For heart disease and cancer a national series does reach back to 1900, so the legend gives that figure instead — which is how you can see heart-disease mortality rise to its 1950 peak of 589 per 100,000 and fall to 164 by 2018. Diabetes and Alzheimer's have no comparable long series. Dementia is not coded separately from Alzheimer's in this file.</p>
+          <p>Outside 1999–2017 <b>nothing is drawn</b>, and the shaded span on the epoch slider shows where the data actually is. Painting the nearest year instead would fill the map for epochs with nothing behind them.</p>
+          <p>Why that span and no wider: CDC stopped maintaining this series — it was last updated in October 2019 and ends at 2017. Earlier years do not exist in CDC's open data at all; state-level cause-of-death before 1999 survives only in the archival Compressed Mortality File, split across two ICD revisions that changed how causes are coded. Later years exist only as provisional weekly <i>counts</i> with no age breakdown, which cannot be age-standardised, so putting them on this scale would make a state's rank shift with its age structure rather than its health.</p>
+          <p>For heart disease and cancer a national series does reach back to 1900, so outside the mapped span the legend gives that figure instead — which is how you can watch heart-disease mortality climb to its 1950 peak of 589 per 100,000 and fall to 164 by 2018. Diabetes and Alzheimer's have no comparable long series. Dementia is not coded separately from Alzheimer's in this file.</p>
         </div>
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:#ffd24a"></span> UVB latitudes</div>
@@ -1887,6 +1899,7 @@
     state.showProjection = projToggle.checked;
     slider.max = maxAllowedIdx();
     if (state.epochIdx > maxAllowedIdx()) { state.epochIdx = maxAllowedIdx(); slider.value = state.epochIdx; }
+    syncCoverageBand();
     render(); renderSpark();
   });
 
@@ -1950,10 +1963,26 @@
     cdcSelect.value = state.cdcCause;
     cdcSelect.addEventListener('change', ()=>{ state.cdcCause = cdcSelect.value; render(); });
   }
+  function syncCoverageBand(){
+    const note = document.getElementById('coverageNote');
+    const on = state.showCDC && state.layer === 'decl' && CDC;
+    slider.classList.toggle('has-coverage', !!on);
+    if (!on){ note.hidden = true; return; }
+    const maxIdx = maxAllowedIdx();
+    const i0 = epochs.indexOf(CDC.years[0]);
+    const i1 = epochs.indexOf(CDC.years[CDC.years.length - 1]);
+    if (i0 < 0 || i1 < 0 || maxIdx <= 0){ note.hidden = true; return; }
+    slider.style.setProperty('--cov-from', (100 * i0 / maxIdx) + '%');
+    slider.style.setProperty('--cov-to',   (100 * i1 / maxIdx) + '%');
+    note.hidden = false;
+    note.innerHTML = `<b>Shaded span</b> = years with CDC state data (${CDC.years[0]}–${CDC.years[CDC.years.length-1]}). Outside it the map is left blank rather than filled with a neighbouring year.`;
+  }
+
   function syncCdcUI(){
     const on = state.showCDC && state.layer === 'decl';
     document.getElementById('cdcToggle').hidden = state.layer !== 'decl';
     cdcSelect.hidden = !on;
+    syncCoverageBand();
   }
 
   syncCdcUI();
