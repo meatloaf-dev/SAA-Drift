@@ -966,7 +966,7 @@
       for (const ring of STATES.polygons[name]){
         // unwrap longitude along the ring so the Aleutians don't smear across the texture,
         // then draw the wrapped copy too
-        let prevLon = ring[0][0], off = 0;
+        let prevLon = ring[0][0], off = 0, minX = Infinity, maxX = -Infinity;
         const xs = [], ys2 = [];
         for (const [lon, lat] of ring){
           let d = lon - prevLon;
@@ -974,8 +974,14 @@
           prevLon = lon;
           const [x, yy] = lonLatToXY(lon + off, lat);
           xs.push(x); ys2.push(yy);
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
         }
-        for (const shift of [0, -TEX_W, TEX_W]){
+        // only the rings that actually run off an edge need their wrapped copies drawn.
+        // That is the Aleutians and nothing else, so the other ~55 states cost one fill
+        // instead of three -- the difference is most of this layer's per-epoch cost.
+        const needsWrap = minX < 0 || maxX > TEX_W;
+        for (const shift of (needsWrap ? [0, -TEX_W, TEX_W] : [0])){
           ctx.beginPath();
           ctx.moveTo(xs[0] + shift, ys2[0]);
           for (let i = 1; i < xs.length; i++) ctx.lineTo(xs[i] + shift, ys2[i]);
