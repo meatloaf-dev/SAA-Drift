@@ -1181,13 +1181,31 @@
   // same fix for coastlines/borders: the texture goes soft at this zoom no matter how high its
   // resolution, but we already have this as real vector line data (Natural Earth 1:10m) -- small
   // enough (~70k points total) to build as static geometry once, so no per-pan recompute needed.
+  // A segment is drawn as a straight line in 3D, which is a chord: it cuts beneath the sphere,
+  // and the longer the segment the deeper. Simplification leaves the dead-straight borders --
+  // the 49th parallel, Kansas/Oklahoma along 37N -- as one or two very long segments, whose
+  // chords sink kilometres below the surface and vanish inside the globe, so the line appears
+  // broken in the middle. Subdividing keeps every drawn piece short enough to hug the surface.
+  // Interpolation is linear in lon/lat, not great-circle, because these borders follow
+  // parallels: a great circle between two points at 37N would bow north of 37N.
+  const MAX_SEG_DEG = 0.75;   // ~19x clearance at the lowest radius anything is drawn at
   function polylinesToSegPositions(polylines, r){
     const positions = [];
     for (const line of polylines){
       for (let i=0;i<line.length-1;i++){
-        const p0 = lonLatToVec3(line[i][0], line[i][1], r);
-        const p1 = lonLatToVec3(line[i+1][0], line[i+1][1], r);
-        positions.push(p0.x,p0.y,p0.z, p1.x,p1.y,p1.z);
+        const lon0 = line[i][0], lat0 = line[i][1];
+        let dlon = line[i+1][0] - lon0;
+        if (dlon > 180) dlon -= 360; else if (dlon < -180) dlon += 360;  // antimeridian
+        const dlat = line[i+1][1] - lat0;
+        const span = Math.hypot(dlon * Math.cos((lat0 + line[i+1][1]) * 0.5 * DEG), dlat);
+        const steps = span > MAX_SEG_DEG ? Math.ceil(span / MAX_SEG_DEG) : 1;
+        let prev = lonLatToVec3(lon0, lat0, r);
+        for (let k = 1; k <= steps; k++){
+          const t = k / steps;
+          const p = lonLatToVec3(lon0 + dlon * t, lat0 + dlat * t, r);
+          positions.push(prev.x, prev.y, prev.z, p.x, p.y, p.z);
+          prev = p;
+        }
       }
     }
     return positions;
