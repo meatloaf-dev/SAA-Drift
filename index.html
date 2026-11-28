@@ -191,9 +191,8 @@
   input[type="range"].has-coverage{
     background:linear-gradient(90deg,
       var(--border) 0 var(--cov-from),
-      hsl(285 55% 46%) var(--cov-from) var(--cov-to),
-      hsl(352 58% 48%) var(--cov-to) var(--cov2-to),
-      var(--border) var(--cov2-to) 100%);
+      hsl(292 50% 48%) var(--cov-from) var(--cov-to),
+      var(--border) var(--cov-to) 100%);
   }
   .coverage-note{ font-size:10.5px; color:var(--ink-faint); margin-top:5px; }
   .coverage-note b{ color:#c78fe0; font-weight:600; }
@@ -499,7 +498,7 @@
       </div>
       <div class="src">
         <b>CDC mortality (toggle, declination layer)</b>
-        CDC/NCHS, <a href="https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu" target="_blank" rel="noopener">Leading Causes of Death: United States</a> (<code>bi63&#8209;dtpu</code>) — age&#8209;adjusted deaths per 100,000, standardised to the 2000 US population, by state and year. ICD&#8209;10 coding, consistent across 1999–2017; the ICD&#8209;9 to ICD&#8209;10 change in 1999 altered how several causes are coded, so earlier years are not comparable and are not included. For 2018–2022 the map switches to a separate <b>crude</b> measure, drawn in a different colour on its own scale: weekly provisional counts by state (<code>3yf8&#8209;kanr</code>, <code>muzy&#8209;jte6</code>) over <a href="https://www.census.gov/programs-surveys/popest.html" target="_blank" rel="noopener">Census</a> state population estimates, with New York City recombined into New York and any state-year missing more than two weeks to CDC's under&#8209;10 suppression left blank. Outside both spans no state map is drawn. For heart disease and cancer the legend falls back to CDC/NCHS <a href="https://data.cdc.gov/NCHS/NCHS-Age-adjusted-Death-Rates-for-Selected-Major-Ca/6rkc-nb2q" target="_blank" rel="noopener">Age&#8209;adjusted Death Rates for Selected Major Causes</a> (<code>6rkc&#8209;nb2q</code>), a United States total running 1900–2018.
+        CDC/NCHS, <a href="https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu" target="_blank" rel="noopener">Leading Causes of Death: United States</a> (<code>bi63&#8209;dtpu</code>) — age&#8209;adjusted deaths per 100,000, standardised to the 2000 US population, by state and year. ICD&#8209;10 coding, consistent across 1999–2017; the ICD&#8209;9 to ICD&#8209;10 change in 1999 altered how several causes are coded, so earlier years are not comparable and are not included. 2018–2022 comes instead from weekly provisional counts by state (<code>3yf8&#8209;kanr</code>, <code>muzy&#8209;jte6</code>) over <a href="https://www.census.gov/programs-surveys/popest.html" target="_blank" rel="noopener">Census</a> state population estimates, with New York City recombined into New York and any state-year missing more than two weeks to CDC's under&#8209;10 suppression left blank. Both spans are painted as a percentage of the national rate of their own measure, which is scale-free and so continuous across the join. Outside both spans no state map is drawn. For heart disease and cancer the legend falls back to CDC/NCHS <a href="https://data.cdc.gov/NCHS/NCHS-Age-adjusted-Death-Rates-for-Selected-Major-Ca/6rkc-nb2q" target="_blank" rel="noopener">Age&#8209;adjusted Death Rates for Selected Major Causes</a> (<code>6rkc&#8209;nb2q</code>), a United States total running 1900–2018.
       </div>
       <div class="src">
         <b>US state lines</b>
@@ -581,11 +580,10 @@
         </div>
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:linear-gradient(90deg,hsl(285 22% 80%),hsl(285 70% 32%))"></span> CDC mortality</div>
-          <p>Age-adjusted death rates by state from CDC/NCHS, on the declination layer, for heart disease, cancer, diabetes and Alzheimer's. The year follows the epoch slider across the <b>1999–2017</b> span the state data covers, so the map moves through time with the field. Rates are <b>deaths per 100,000 standardised to the 2000 US population</b> — mortality, not prevalence — and the colour scale is fixed across all years, so the steep national decline in heart disease is visible as you scrub rather than being normalised away.</p>
-          <p><b>2018–2022 is a second, separate measure.</b> CDC stopped maintaining the age-adjusted series — last updated October 2019, ending at 2017. What exists after that is provisional weekly <i>counts</i> by state with no age breakdown, so they can only become <b>crude</b> rates, divided by Census population. Crude rates run higher wherever the population is older: New York is 171 age-adjusted in 2017 and 225 crude in 2018, which is a change of measure, not of health. So the crude years are drawn in a different colour, on their own scale, and the two are never blended. The epoch slider shades each span in its own colour.</p>
-          <p>Two caveats specific to the crude years. CDC withholds any weekly count under 10, which for diabetes and Alzheimer's blanks most of the year in small states — those states are left blank and the legend says how many. And the weekly files report by jurisdiction where the death occurred rather than where the person lived, where the age-adjusted series uses residence.</p>
-          <p>Before 1999 nothing is drawn at all: state-level cause-of-death does not exist in CDC's open data, surviving only in the archival Compressed Mortality File, split across two ICD revisions that changed how causes are coded.</p>
-          <p>For heart disease and cancer a national series does reach back to 1900, so outside the mapped span the legend gives that figure instead — which is how you can watch heart-disease mortality climb to its 1950 peak of 589 per 100,000 and fall to 164 by 2018. Diabetes and Alzheimer's have no comparable long series. Dementia is not coded separately from Alzheimer's in this file.</p>
+          <p>State mortality from CDC/NCHS on the declination layer, for heart disease, cancer, diabetes and Alzheimer's, following the epoch slider across <b>1999–2022</b>.</p>
+          <p>Each state is painted as a <b>percentage of that year's national rate</b>, not as an absolute rate. Grey is the national average, violet above it, pale below, saturating at ±40 points. That choice is what lets the whole span read as one picture: CDC froze the age-adjusted series at 2017, and the only data after it is provisional counts that can be made into crude rates but not age-adjusted ones. Absolute crude and age-adjusted rates are not comparable — crude runs higher wherever the population is older — but their <i>ratios to the national figure of the same measure</i> largely are, because the age-structure effect divides out.</p>
+          <p>That was measured rather than assumed. Across the years where both measures exist, the two ratios correlate at <b>r = 0.78 to 0.92</b> depending on cause, with a mean gap of 7–13 points — against a raw-rate seam of about 32% for a state like New York. Ordering is preserved across the join: Minnesota reads 71.8% then 72.0%, New York 103.1% then 108.9%. The legend names which measure each year came from.</p>
+          <p>Before 1999 nothing is drawn — state-level cause-of-death does not exist in CDC's open data, surviving only in the archival Compressed Mortality File across two ICD revisions. For heart disease and cancer the legend falls back to a national figure reaching back to 1900, which is how you can watch heart-disease mortality climb to its 1950 peak of 589 per 100,000 and fall to 164 by 2018. CDC also withholds weekly counts under 10, which blanks some small states for the rarer causes in the later years; the legend says how many. Dementia is not coded separately from Alzheimer's here.</p>
         </div>
         <div class="factor">
           <div class="factor-head"><span class="sw" style="background:#ffd24a"></span> UVB latitudes</div>
@@ -918,6 +916,16 @@
     t = Math.max(0, Math.min(1, t));
     return hsl(352, lerp(25, 72, t), lerp(80, 34, t));
   }
+  // The painted layer is each state as a percent of that year's national rate -- a scale-free
+  // ratio, so the age-adjusted years and the crude years sit on one continuous scale with no
+  // visible seam where the underlying measure changes. Diverging about 100%: neutral grey at
+  // the national average, cool below it, violet above, saturating at +-40 points.
+  const CDC_REL_SPREAD = 40;
+  function cdcRelColor(pct){
+    const t = Math.max(-1, Math.min(1, (pct - 100) / CDC_REL_SPREAD));
+    return t >= 0 ? hsl(292, lerp(10, 66, t), lerp(60, 33, t))
+                  : hsl(205, lerp(10, 40, -t), lerp(60, 76, -t));
+  }
   // The state series exists for 1999-2017 only. Outside it there is no index and nothing is
   // painted: clamping to the nearest year would fill the whole map for, say, 1950, and a
   // painted map reads as data no matter what the caption underneath it says.
@@ -928,18 +936,17 @@
   // Age-adjusted where it exists, crude where it does not. Never both, never blended.
   function cdcSeries(){
     const y = epochs[state.epochIdx];
-    const ai = CDC.years.indexOf(y);
-    if (ai >= 0){
-      const c = CDC.causes[state.cdcCause];
-      return c ? { kind:'adjusted', cause:c, idx:ai, year:y, color:cdcColor,
-                   label:'age-adjusted', withheld:0 } : null;
-    }
-    const cr = CDC.crude;
-    if (!cr) return null;
-    const ci = cr.years.indexOf(y);
-    const c = ci >= 0 && cr.causes[state.cdcCause];
-    return c ? { kind:'crude', cause:c, idx:ci, year:y, color:cdcCrudeColor,
-                 label:'crude', withheld:c.withheld || 0 } : null;
+    const rel = CDC.relative && CDC.relative.causes[state.cdcCause];
+    if (!rel) return null;
+    const idx = rel.years.indexOf(y);
+    if (idx < 0) return null;
+    // which underlying measure this year came from -- caption only; the painted value is
+    // the scale-free ratio either way, so the two sit on one continuous scale
+    const basis = CDC.years.indexOf(y) >= 0 ? 'age-adjusted rates'
+                : (CDC.crude && CDC.crude.years.indexOf(y) >= 0) ? 'provisional counts'
+                : 'mixed sources';
+    const drawn = Object.values(rel.states).filter(r => r[idx] !== null && r[idx] !== undefined).length;
+    return { cause: rel, idx, year: y, basis, drawn, total: Object.keys(rel.states).length };
   }
   // national age-adjusted rate for the current epoch, where that longer series reaches
   function cdcNationalRate(){
@@ -951,10 +958,10 @@
   function paintCDC(){
     const ser = cdcSeries();
     if (!ser || !STATES || !STATES.polygons) return;
-    const cause = ser.cause, yi = ser.idx, paint = ser.color;
+    const cause = ser.cause, yi = ser.idx;
     // scaled across the whole 1999-2017 range, not per-year, so a colour means the same rate
     // however you scrub -- otherwise the map would renormalise and hide the national decline
-    const lo = cause.min, span = (cause.max - cause.min) || 1;
+    // no per-year renormalising: 100% always means the national average, whatever the year
     ctx.save();
     ctx.globalAlpha = 0.82;
     for (const name in STATES.polygons){
@@ -962,7 +969,7 @@
       if (!series) continue;
       const v = series[yi];
       if (v === null || v === undefined) continue;
-      ctx.fillStyle = paint((v - lo) / span);
+      ctx.fillStyle = cdcRelColor(v);
       for (const ring of STATES.polygons[name]){
         // unwrap longitude along the ring so the Aleutians don't smear across the texture,
         // then draw the wrapped copy too
@@ -1043,35 +1050,27 @@
     let cdcRow = '';
     if (state.showCDC && state.layer === 'decl' && CDC){
       const ser = cdcSeries(), epochYear = epochs[state.epochIdx];
-      const adjSpan = `${CDC.years[0]}\u2013${CDC.years[CDC.years.length-1]}`;
-      const crSpan = CDC.crude && CDC.crude.years.length
-        ? `${CDC.crude.years[0]}\u2013${CDC.crude.years[CDC.crude.years.length-1]}` : null;
+      const rel = CDC.relative, label = CDC.causes[state.cdcCause].label;
+      const relSpan = rel && rel.years.length ? `${rel.years[0]}\u2013${rel.years[rel.years.length-1]}` : null;
       if (ser){
-        const c = ser.cause, paint = ser.color;
-        const measure = ser.kind === 'adjusted'
-          ? 'age-adjusted deaths per 100k'
-          : 'crude deaths per 100k \u2014 not age-adjusted';
-        const warn = ser.kind === 'crude'
-          ? `<div style="color:var(--ink-faint);font-size:10px;margin-top:3px">Provisional counts over Census population. A different measure from ${adjSpan}: crude rates run higher where the population is older, so the two scales are not comparable.</div>` : '';
-        const withheld = ser.withheld
-          ? `<div style="color:var(--ink-faint);font-size:10px;margin-top:2px">${ser.withheld} states left blank \u2014 CDC withholds weekly counts under 10, which blanks most of the year for this cause in small states.</div>` : '';
-        cdcRow = `<div class="row" style="display:block;max-width:252px">
-            <div style="color:var(--ink);font-weight:600;margin-bottom:3px">${c.label || CDC.causes[state.cdcCause].label}, ${epochYear}</div>
-            <div style="height:9px;border-radius:3px;background:linear-gradient(90deg,${paint(0)},${paint(.5)},${paint(1)})"></div>
+        const blanks = ser.total - ser.drawn;
+        const stops = [60, 80, 100, 120, 140].map(p => cdcRelColor(p)).join(',');
+        cdcRow = `<div class="row" style="display:block;max-width:254px">
+            <div style="color:var(--ink);font-weight:600;margin-bottom:3px">${label}, ${epochYear}</div>
+            <div style="height:9px;border-radius:3px;background:linear-gradient(90deg,${stops})"></div>
             <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--ink-faint)">
-              <span>${c.min}</span><span>${measure}</span><span>${c.max}</span></div>
-            ${warn}${withheld}
+              <span>60%</span><span>of national rate</span><span>140%</span></div>
+            <div style="color:var(--ink-faint);font-size:10px;margin-top:3px">Grey = the national average that year. From ${ser.basis}.${blanks ? ` ${blanks} state${blanks===1?'':'s'} withheld.` : ''}</div>
           </div>`;
       } else {
         const nat = cdcNationalRate();
         const natSer = CDC.national_long && CDC.national_long[state.cdcCause];
-        const spans = crSpan ? `${adjSpan} and ${crSpan}` : adjSpan;
         const natRangeNote = natSer
           ? `The national series for this cause runs ${natSer.years[0]}\u2013${natSer.years[natSer.years.length-1]}, so it has no figure for ${epochYear}.`
-          : `No national series published for this cause outside ${spans}.`;
-        cdcRow = `<div class="row" style="display:block;max-width:252px">
-            <div style="color:var(--ink);font-weight:600">${CDC.causes[state.cdcCause].label}, ${epochYear}</div>
-            <div style="color:var(--ink-faint);font-size:10px;margin-top:2px">No state data \u2014 CDC's state series cover ${spans}, so nothing is drawn.</div>
+          : `No national series published for this cause outside ${relSpan}.`;
+        cdcRow = `<div class="row" style="display:block;max-width:254px">
+            <div style="color:var(--ink);font-weight:600">${label}, ${epochYear}</div>
+            <div style="color:var(--ink-faint);font-size:10px;margin-top:2px">No state data \u2014 CDC's state series cover ${relSpan}, so nothing is drawn.</div>
             ${nat !== null
               ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--ink);margin-top:4px">US national ${epochYear}: ${nat} per 100k</div>`
               : `<div style="color:var(--ink-faint);font-size:10px;margin-top:2px">${natRangeNote}</div>`}
@@ -1985,8 +1984,9 @@
     // the default epoch sits outside the state series, so switching the overlay on would
     // otherwise paint nothing. Move to the nearest year that has data -- the slider visibly
     // jumps, so this reads as "here is where the data is", not as data appearing from nowhere.
-    if (!state.showCDC || !CDC || cdcYearIndex() !== null) return;
-    const ys = CDC.years, y = epochs[state.epochIdx];
+    if (!state.showCDC || !CDC || cdcSeries()) return;
+    const ys = (CDC.relative && CDC.relative.years.length) ? CDC.relative.years : CDC.years;
+    const y = epochs[state.epochIdx];
     const target = y < ys[0] ? ys[0] : ys[ys.length - 1];
     const idx = epochs.indexOf(target);
     if (idx >= 0 && idx <= maxAllowedIdx()){
@@ -2011,19 +2011,17 @@
     slider.classList.toggle('has-coverage', !!on);
     if (!on){ note.hidden = true; return; }
     const maxIdx = maxAllowedIdx();
-    const i0 = epochs.indexOf(CDC.years[0]);
-    const i1 = epochs.indexOf(CDC.years[CDC.years.length - 1]);
-    if (i0 < 0 || i1 < 0 || maxIdx <= 0){ note.hidden = true; return; }
-    const cr = CDC.crude && CDC.crude.years.length ? CDC.crude.years : null;
-    const i2 = cr ? epochs.indexOf(cr[cr.length - 1]) : i1;
+    if (maxIdx <= 0){ note.hidden = true; return; }
+    const i0 = epochs.indexOf(CDC.years[0]), i1 = epochs.indexOf(CDC.years[CDC.years.length - 1]);
+    const rel = CDC.relative && CDC.relative.years.length ? CDC.relative.years : null;
+    const a = rel ? epochs.indexOf(rel[0]) : i0;
+    const b = rel ? epochs.indexOf(rel[rel.length - 1]) : i1;
+    if (a < 0 || b < 0){ note.hidden = true; return; }
     const pct = i => (100 * i / maxIdx) + '%';
-    slider.style.setProperty('--cov-from', pct(i0));
-    slider.style.setProperty('--cov-to',   pct(i1));
-    slider.style.setProperty('--cov2-to',  pct(Math.max(i1, i2)));
+    slider.style.setProperty('--cov-from', pct(a));
+    slider.style.setProperty('--cov-to',   pct(b));
     note.hidden = false;
-    note.innerHTML = cr
-      ? `<b>${CDC.years[0]}–${CDC.years[CDC.years.length-1]} age-adjusted</b> · <i>${cr[0]}–${cr[cr.length-1]} crude</i> — two different measures, each on its own scale. Outside both, the map is left blank.`
-      : `<b>Shaded span</b> = years with CDC state data. Outside it the map is left blank.`;
+    note.innerHTML = `<b>${epochs[a]}–${epochs[b]}</b> — years with CDC state data. Outside it the map is left blank.`;
   }
 
   function syncCdcUI(){

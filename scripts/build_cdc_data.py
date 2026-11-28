@@ -194,6 +194,78 @@ def build_crude(after_year, keep_states):
     return {"years": years, "causes": causes}
 
 
+def build_relative(adjusted, adj_years, crude_all):
+    """One continuous series: each state as a percent of that year's national rate.
+
+    Absolute crude and age-adjusted rates are not comparable -- crude runs higher wherever
+    the population is older. Their *ratios to the national figure of the same measure* are,
+    because the age-structure effect is largely divided out. The overlap years are measured
+    below rather than assumed, and reported alongside the data."""
+    def to_ratio(series_by_state, years):
+        out, nat_by_year = {}, {}
+        for i, y in enumerate(years):
+            vals = [row[i] for row in series_by_state.values() if row[i] is not None]
+            nat_by_year[y] = (sum(vals) / len(vals)) if vals else None
+        for st, row in series_by_state.items():
+            out[st] = [None if (v is None or not nat_by_year[years[i]])
+                       else round(100.0 * v / nat_by_year[years[i]], 1)
+                       for i, v in enumerate(row)]
+        return out
+
+    causes, all_years = {}, set()
+    overlap_report = {}
+    for key, adj in adjusted.items():
+        if key == "all":
+            continue
+        adj_ratio = to_ratio(adj["states"], adj_years)
+        cr = crude_all["causes"].get(key)
+        cr_years = crude_all["years"]
+        cr_ratio = to_ratio(cr["states"], cr_years) if cr else {}
+
+        # measure agreement where both exist, instead of trusting that they agree
+        pairs = []
+        for st in set(adj_ratio) & set(cr_ratio):
+            for y in set(adj_years) & set(cr_years):
+                a = adj_ratio[st][adj_years.index(y)]
+                c = cr_ratio[st][cr_years.index(y)]
+                if a is not None and c is not None:
+                    pairs.append((a, c))
+        if pairs:
+            n = len(pairs)
+            ma = sum(a for a, _ in pairs) / n
+            mc = sum(c for _, c in pairs) / n
+            va = sum((a - ma) ** 2 for a, _ in pairs) ** 0.5
+            vc = sum((c - mc) ** 2 for _, c in pairs) ** 0.5
+            r = sum((a - ma) * (c - mc) for a, c in pairs) / (va * vc) if va and vc else 0
+            mad = sum(abs(a - c) for a, c in pairs) / n
+            overlap_report[key] = {"n": n, "r": round(r, 3), "mean_abs_diff_pct": round(mad, 1)}
+
+        merged, years_for_cause = {}, sorted(set(adj_years) | set(cr_years))
+        for st in set(adj_ratio) | set(cr_ratio):
+            row = []
+            for y in years_for_cause:
+                v = None
+                if y in adj_years:
+                    v = adj_ratio.get(st, [None] * len(adj_years))[adj_years.index(y)]
+                if v is None and y in cr_years:
+                    v = cr_ratio.get(st, [None] * len(cr_years))[cr_years.index(y)]
+                row.append(v)
+            merged[st] = row
+        all_years |= set(years_for_cause)
+        vals = [v for row in merged.values() for v in row if v is not None]
+        causes[key] = {"label": adj["label"], "states": merged,
+                       "min": round(min(vals), 1), "max": round(max(vals), 1),
+                       "years": years_for_cause}
+    years_sorted = sorted(all_years)
+    print("relative (percent of national, blended):")
+    for k, c in causes.items():
+        o = overlap_report.get(k, {})
+        print(f"    {k:11} {c['years'][0]}-{c['years'][-1]}, {len(c['states'])} states, "
+              f"{c['min']}-{c['max']}% of national"
+              + (f"  | overlap r={o['r']}, mean diff {o['mean_abs_diff_pct']}pp (n={o['n']})" if o else ""))
+    return {"years": years_sorted, "causes": causes}, overlap_report
+
+
 def main():
     print(f"fetching {API}")
     rows = fetch_all()
@@ -244,9 +316,17 @@ def main():
         print(f"    {key:11} national {yrs[0]}-{yrs[-1]}, "
               f"{by_year[yrs[0]]:.0f} -> peak {max(by_year.values()):.0f} -> {by_year[yrs[-1]]:.0f} per 100k")
 
+    crude_all = build_crude(after_year=0, keep_states=set(states))
     crude = build_crude(after_year=years[-1], keep_states=set(states))
 
+    relative, overlap = build_relative(out_causes, years, crude_all)
+
     doc = {
+        "relative": relative,
+        "relative_note": ("Each state as a percentage of that year's national rate. The ratio is "
+                          "scale-free, so the age-adjusted years and the crude years can share one "
+                          "continuous scale even though their absolute rates cannot."),
+        "relative_validation": overlap,
         "crude": crude,
         "crude_source": ("CDC/NCHS weekly provisional counts by state (3yf8-kanr 2014-2019, "
                          "muzy-jte6 2020-2023) over Census state population estimates. Crude, "

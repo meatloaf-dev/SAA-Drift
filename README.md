@@ -19,11 +19,14 @@ lines`), so isogonic and isoclinic read together as on a paper chart.
 Optional overlays: Smithsonian GVP volcanoes, the UVB latitude bounds (solar
 geometry only — no cloud, ozone, aerosol or altitude data), the ranked Tier 1–2
 sites, and a CDC state mortality choropleth (heart disease, cancer, diabetes,
-Alzheimer's) whose year follows the epoch slider: age-adjusted 1999–2017, then
-a separate crude measure 2018–2022 in its own colour on its own scale (CDC
-froze the age-adjusted series in 2019). Outside both, nothing is drawn — there
-is no state breakdown before 1999 — and for heart disease and cancer the legend
-falls back to the national series, which reaches back to 1900.
+Alzheimer's) following the epoch slider across 1999–2022. States are painted as
+a percentage of that year's national rate rather than an absolute rate: the
+ratio is scale-free, so the age-adjusted years (1999–2017, before CDC froze the
+series) and the crude years built from provisional counts (2018–2022) read as
+one continuous picture. Measured agreement where both exist is r = 0.78–0.92.
+Outside that span nothing is drawn — there is no state breakdown before 1999 —
+and for heart disease and cancer the legend falls back to the national series,
+which reaches back to 1900.
 
 ## How it stays current
 
