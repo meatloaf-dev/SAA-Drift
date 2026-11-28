@@ -55,6 +55,14 @@ jobs:
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
         run: python3 -u scripts/build_data.py ${{ inputs.full && '--full' || '' }}
 
+      # The all-cause mortality series now chains onto CDC's r8kw-7aab, which is republished
+      # weekly, so this file is no longer static. ~40 s, no token, no dependencies. A failure
+      # here must not throw away the VirES data the previous step just spent four minutes on,
+      # so it is non-fatal: the commit step below still runs and keeps whatever did rebuild.
+      - name: Refresh CDC mortality (all-cause runs to the present)
+        continue-on-error: true
+        run: python3 -u scripts/build_cdc_data.py
+
       - name: Commit refreshed data if changed
         run: |
           git config user.name "geomagnetic-drift-atlas-bot"

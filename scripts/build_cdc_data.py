@@ -36,7 +36,17 @@ WEEKLY_CAUSE_COLS = {
     "cancer": "malignant_neoplasms_c00_c97",
     "diabetes": "diabetes_mellitus_e10_e14",
     "alzheimers": "alzheimer_disease_g30",
-}   # all-cause is spelled differently between the two files and is not used here
+}
+# all-cause is spelled differently in the two weekly files
+WEEKLY_ALLCAUSE_COL = {
+    "https://data.cdc.gov/resource/3yf8-kanr.json": "allcause",
+    "https://data.cdc.gov/resource/muzy-jte6.json": "all_cause",
+}
+# Still being updated: all-cause deaths by state and week, currently through late 2026. It
+# carries no cause breakdown, so it can only extend the all-cause series -- but that is what
+# reaches the present. Every jurisdiction reports the same weeks, including the partial
+# current year, so a ratio to the national figure stays valid even before the year is over.
+API_RECENT = "https://data.cdc.gov/resource/r8kw-7aab.json"
 MAX_SUPPRESSED_WEEKS = 2   # a couple of withheld weeks shifts an annual total trivially
 POP_FILES = [
     "https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/national/totals/nst-est2019-alldata.csv",
@@ -115,8 +125,8 @@ def fetch_weekly_annual():
     weeks were suppressed: NCHS blanks any weekly cell under 10, which for a rare cause in a
     small state can blank nearly the whole year and read as near-zero deaths."""
     deaths, weeks, suppressed = {}, {}, {}
-    cols = ",".join(sorted(set(WEEKLY_CAUSE_COLS.values())))
     for base, state_col, date_col in API_WEEKLY:
+        cols = ",".join(sorted(set(WEEKLY_CAUSE_COLS.values()) | {WEEKLY_ALLCAUSE_COL[base]}))
         offset = 0
         while True:
             q = urllib.parse.urlencode({
@@ -135,7 +145,7 @@ def fetch_weekly_annual():
                 except (KeyError, TypeError, ValueError):
                     continue
                 weeks.setdefault((st, yr), set()).add(r.get("mmwrweek"))
-                for key, col in WEEKLY_CAUSE_COLS.items():
+                for key, col in list(WEEKLY_CAUSE_COLS.items()) + [("all", WEEKLY_ALLCAUSE_COL[base])]:
                     v = r.get(col)
                     if v in (None, ""):
                         suppressed.setdefault(key, {}).setdefault((st, yr), 0)
@@ -150,6 +160,33 @@ def fetch_weekly_annual():
                 break
             offset += 50000
     return deaths, weeks, suppressed
+
+
+def fetch_recent_allcause():
+    """All-cause deaths by state and year from the file CDC still updates, plus the number of
+    weeks each year contains, so a partial current year can be handled honestly."""
+    q = urllib.parse.urlencode({"$select": "state,total_deaths,week_ending_date,`group`",
+                                "$limit": 100000})
+    with urllib.request.urlopen(f"{API_RECENT}?{q}", timeout=180) as resp:
+        rows = json.loads(resp.read())
+    deaths, weeks = {}, {}
+    for r in rows:
+        if r.get("group") != "By Week":
+            continue
+        st, d, v = r.get("state"), r.get("week_ending_date"), r.get("total_deaths")
+        if not st or not d or v in (None, ""):
+            continue
+        st = MERGE_JURISDICTIONS.get(st, st)
+        if st in SKIP_STATES:
+            continue
+        yr = int(d[:4])
+        try:
+            deaths.setdefault(st, {}).setdefault(yr, 0)
+            deaths[st][yr] += int(float(v))
+        except ValueError:
+            continue
+        weeks.setdefault(yr, set()).add(d)
+    return deaths, {y: len(w) for y, w in weeks.items()}
 
 
 def build_crude(after_year, keep_states):
@@ -183,29 +220,143 @@ def build_crude(after_year, keep_states):
     causes = {}
     for key, series in out.items():
         dense = {st: [series[st].get(y) for y in years] for st in sorted(series)}
+        # population-weighted national crude rate, the correct reference for these states
+        national = []
+        for y in years:
+            num = den = 0
+            for st in series:
+                d = deaths.get(key, {}).get(st, {}).get(y)
+                p = state_pop_for(pop, st, y)
+                if d and p and series[st].get(y) is not None:
+                    num += d
+                    den += p
+            national.append(round(num / den * 100000, 1) if den else None)
         vals = [v for row in dense.values() for v in row if v is not None]
         if not vals:
             continue
         complete = [st for st, row in dense.items() if all(v is not None for v in row)]
         causes[key] = {"min": round(min(vals), 1), "max": round(max(vals), 1),
-                       "states": dense, "withheld": len(keep_states) - len(dense)}
+                       "states": dense, "national": national,
+                       "withheld": len(keep_states) - len(dense)}
         print(f"    {key:11} crude {years[0]}-{years[-1]}, {len(complete)}/{len(dense)} states complete, "
               f"range {causes[key]['min']}-{causes[key]['max']} per 100k")
     return {"years": years, "causes": causes}
 
 
-def build_relative(adjusted, adj_years, crude_all):
+def ratio_from_counts(deaths_by_state, years, keep_states, pop):
+    """Counts -> percent of the national rate for the same year.
+
+    Counts cannot be compared between states directly -- they scale with population -- so each
+    state becomes a rate first and the reference is the true national rate (all deaths over all
+    population), not the average of state rates. A uniformly partial year is still valid: every
+    jurisdiction contributes the same weeks, so the shortfall divides out of the ratio."""
+    out = {}
+    for y in years:
+        num = den = 0
+        for st in keep_states:
+            d = deaths_by_state.get(st, {}).get(y)
+            p = state_pop_for(pop, st, y)
+            if d and p:
+                num += d
+                den += p
+        if not den:
+            continue
+        national = num / den
+        for st in keep_states:
+            d = deaths_by_state.get(st, {}).get(y)
+            p = state_pop_for(pop, st, y)
+            out.setdefault(st, {})[y] = (round(100.0 * (d / p) / national, 1)
+                                         if d and p and national else None)
+    return out
+
+
+def state_pop_for(pop, st, year):
+    """Population for a state-year, holding the most recent estimate forward. Census publishes
+    a year or two behind; population moves under a percent a year and in the same direction
+    almost everywhere, so the effect on a ratio-to-national is negligible."""
+    by_year = pop.get(st)
+    if not by_year:
+        return None
+    if year in by_year:
+        return by_year[year]
+    latest = max(by_year)
+    return by_year[latest] if year > latest else None
+
+
+def calibrate_onto(target, target_years, anchor, anchor_years):
+    """Move one segment's level onto another's, per state, using the years both cover.
+
+    Two segments can count the same deaths differently -- age-adjusted against crude, residence
+    against occurrence -- so a state sits at a systematically different percent of national in
+    each. The ratio of its two levels across the overlap years is that offset; dividing it out
+    makes the segments meet without a step at the join. Only the level moves. The shape within
+    a segment -- which state is above its neighbours, and by how much -- is what the map draws,
+    and it is untouched. A state with no overlap takes the median offset rather than vanishing."""
+    shared = [y for y in target_years if y in anchor_years]
+    factors = {}
+    for st in set(target) & set(anchor):
+        pairs = [(anchor[st][anchor_years.index(y)], target[st][target_years.index(y)])
+                 for y in shared]
+        pairs = [(a, t) for a, t in pairs if a and t]
+        if pairs:
+            factors[st] = ((sum(a for a, _ in pairs) / len(pairs))
+                           / (sum(t for _, t in pairs) / len(pairs)))
+    if not factors:
+        return {st: row[:] for st, row in target.items()}, factors
+    med = sorted(factors.values())[len(factors) // 2]
+    out = {st: [None if v is None else v * factors.get(st, med) for v in row]
+           for st, row in target.items()}
+    return out, factors
+
+
+def renormalize_to_national(series, years, pop):
+    """Calibration shifts each state by its own factor, so the population-weighted mean drifts
+    off the national figure. Rescale each year to put it back on 100%: the hue ramp is centred
+    there, and a drifting centre would tint the whole map. Relative spacing is unaffected."""
+    for i, y in enumerate(years):
+        num = den = 0.0
+        for st, row in series.items():
+            v, p = row[i], state_pop_for(pop, st, y)
+            if v is not None and p:
+                num += v * p
+                den += p
+        if den and num:
+            k = 100.0 * den / num
+            for row in series.values():
+                if row[i] is not None:
+                    row[i] *= k
+
+
+def mean_year_step(series, years):
+    """Mean absolute year-over-year change per state, by year pair. A join that needs
+    calibration shows up here as one pair far above the rest."""
+    steps = {}
+    for i in range(len(years) - 1):
+        d = [abs(row[i + 1] - row[i]) for row in series.values()
+             if row[i] is not None and row[i + 1] is not None]
+        if d:
+            steps[(years[i], years[i + 1])] = sum(d) / len(d)
+    return steps
+
+
+def build_relative(adjusted, adj_years, crude_all, recent=None, recent_weeks=None, recent_pop=None):
     """One continuous series: each state as a percent of that year's national rate.
 
     Absolute crude and age-adjusted rates are not comparable -- crude runs higher wherever
     the population is older. Their *ratios to the national figure of the same measure* are,
     because the age-structure effect is largely divided out. The overlap years are measured
     below rather than assumed, and reported alongside the data."""
-    def to_ratio(series_by_state, years):
+    def to_ratio(series_by_state, years, national=None):
+        """Percent of the national rate. Uses the published national figure where there is one
+        (the age-adjusted file carries a United States row); otherwise the population-weighted
+        national rate, never the unweighted average of states, which would over-weight Wyoming."""
         out, nat_by_year = {}, {}
         for i, y in enumerate(years):
-            vals = [row[i] for row in series_by_state.values() if row[i] is not None]
-            nat_by_year[y] = (sum(vals) / len(vals)) if vals else None
+            n = national[i] if national and i < len(national) else None
+            if n is None:
+                vals = [row[i] for row in series_by_state.values() if row[i] is not None]
+                n = (sum(vals) / len(vals)) if vals else None
+            nat_by_year[y] = n
         for st, row in series_by_state.items():
             out[st] = [None if (v is None or not nat_by_year[years[i]])
                        else round(100.0 * v / nat_by_year[years[i]], 1)
@@ -215,12 +366,10 @@ def build_relative(adjusted, adj_years, crude_all):
     causes, all_years = {}, set()
     overlap_report = {}
     for key, adj in adjusted.items():
-        if key == "all":
-            continue
-        adj_ratio = to_ratio(adj["states"], adj_years)
+        adj_ratio = to_ratio(adj["states"], adj_years, adj.get("national"))
         cr = crude_all["causes"].get(key)
         cr_years = crude_all["years"]
-        cr_ratio = to_ratio(cr["states"], cr_years) if cr else {}
+        cr_ratio = to_ratio(cr["states"], cr_years, (cr.get("national") if cr else None)) if cr else {}
 
         # measure agreement where both exist, instead of trusting that they agree
         pairs = []
@@ -240,22 +389,70 @@ def build_relative(adjusted, adj_years, crude_all):
             mad = sum(abs(a - c) for a, c in pairs) / n
             overlap_report[key] = {"n": n, "r": round(r, 3), "mean_abs_diff_pct": round(mad, 1)}
 
-        merged, years_for_cause = {}, sorted(set(adj_years) | set(cr_years))
-        for st in set(adj_ratio) | set(cr_ratio):
-            row = []
-            for y in years_for_cause:
-                v = None
-                if y in adj_years:
-                    v = adj_ratio.get(st, [None] * len(adj_years))[adj_years.index(y)]
-                if v is None and y in cr_years:
-                    v = cr_ratio.get(st, [None] * len(cr_years))[cr_years.index(y)]
-                row.append(v)
-            merged[st] = row
+        # all-cause alone has a third source that is still being updated, so its chain runs on
+        rec_ratio, rec_years = {}, []
+        if key == "all" and recent:
+            rec_years = sorted({y for by in recent.values() for y in by})
+            keep = set(adj["states"])
+            sparse = ratio_from_counts(recent, rec_years, keep, recent_pop or {})
+            rec_ratio = {st: [by.get(y) for y in rec_years] for st, by in sparse.items()}
+
+        # Chain the segments onto the age-adjusted one instead of butting them together. The
+        # overlap measured above is a real offset, not noise, and splicing at face value puts a
+        # step into the animation at the year the source changes -- the most visible thing on
+        # screen, and an artefact of the data plumbing rather than anything that happened.
+        # Each link anchors on the already-corrected segment before it, so the whole run of
+        # years sits on the level the age-adjusted series defines.
+        cr_cal, cr_factors = calibrate_onto(cr_ratio, cr_years, adj_ratio, adj_years)
+        rec_cal, rec_factors = ({}, {})
+        if rec_ratio:
+            rec_cal, rec_factors = calibrate_onto(rec_ratio, rec_years, cr_cal, cr_years)
+
+        def splice(crude_seg, recent_seg):
+            years_for = sorted(set(adj_years) | set(cr_years) | set(rec_years))
+            out = {}
+            for st in set(adj_ratio) | set(crude_seg) | set(recent_seg):
+                row = []
+                for y in years_for:
+                    v = None
+                    if y in adj_years:
+                        v = adj_ratio.get(st, [None] * len(adj_years))[adj_years.index(y)]
+                    if v is None and y in cr_years:
+                        v = crude_seg.get(st, [None] * len(cr_years))[cr_years.index(y)]
+                    if v is None and y in rec_years:
+                        v = recent_seg.get(st, [None] * len(rec_years))[rec_years.index(y)]
+                    row.append(v)
+                out[st] = row
+            return out, years_for
+
+        raw, years_for_cause = splice(cr_ratio, rec_ratio)
+        merged, _ = splice(cr_cal, rec_cal)
+        renormalize_to_national(merged, years_for_cause, recent_pop or {})
+
+        # which file each year came from, so the join pairs can be told from ordinary ones
+        src_of = {y: ("adjusted" if y in adj_years else
+                      "crude" if y in cr_years else "recent") for y in years_for_cause}
+        joins = [(a, b) for a, b in zip(years_for_cause, years_for_cause[1:])
+                 if src_of[a] != src_of[b]]
+        before, after = mean_year_step(raw, years_for_cause), mean_year_step(merged, years_for_cause)
+        ordinary = [v for k, v in after.items() if k not in joins]
+        step_report = {
+            "joins": {f"{a}-{b}": {"before": round(before.get((a, b), 0), 1),
+                                   "after": round(after.get((a, b), 0), 1)} for a, b in joins},
+            "ordinary_step_pp": round(sum(ordinary) / len(ordinary), 1) if ordinary else None,
+        }
+        if key in overlap_report:
+            overlap_report[key]["year_step_pp"] = step_report
+
+        merged = {st: [None if v is None else round(v, 1) for v in row]
+                  for st, row in merged.items()}
         all_years |= set(years_for_cause)
         vals = [v for row in merged.values() for v in row if v is not None]
         causes[key] = {"label": adj["label"], "states": merged,
                        "min": round(min(vals), 1), "max": round(max(vals), 1),
                        "years": years_for_cause}
+        if key == "all" and recent_weeks:
+            causes[key]["partial_years"] = {str(y): w for y, w in recent_weeks.items() if w < 52}
     years_sorted = sorted(all_years)
     print("relative (percent of national, blended):")
     for k, c in causes.items():
@@ -263,6 +460,9 @@ def build_relative(adjusted, adj_years, crude_all):
         print(f"    {k:11} {c['years'][0]}-{c['years'][-1]}, {len(c['states'])} states, "
               f"{c['min']}-{c['max']}% of national"
               + (f"  | overlap r={o['r']}, mean diff {o['mean_abs_diff_pct']}pp (n={o['n']})" if o else ""))
+        for pair, st in (o.get("year_step_pp") or {}).get("joins", {}).items():
+            print(f"                join {pair}: step {st['before']}pp -> {st['after']}pp "
+                  f"(ordinary year {o['year_step_pp']['ordinary_step_pp']}pp)")
     return {"years": years_sorted, "causes": causes}, overlap_report
 
 
@@ -319,13 +519,22 @@ def main():
     crude_all = build_crude(after_year=0, keep_states=set(states))
     crude = build_crude(after_year=years[-1], keep_states=set(states))
 
-    relative, overlap = build_relative(out_causes, years, crude_all)
+    print(f"fetching {API_RECENT} (all-cause, still updating)")
+    recent, recent_weeks = fetch_recent_allcause()
+    print(f"    all-cause by state {min(recent_weeks)}-{max(recent_weeks)}; "
+          f"partial years: {{y: w for y, w in recent_weeks.items() if w < 52}}".replace("{y: w for y, w in recent_weeks.items() if w < 52}",
+          str({y: w for y, w in sorted(recent_weeks.items()) if w < 52})))
+    relative, overlap = build_relative(out_causes, years, crude_all, recent, recent_weeks,
+                                       fetch_state_population())
 
     doc = {
         "relative": relative,
         "relative_note": ("Each state as a percentage of that year's national rate. The ratio is "
                           "scale-free, so the age-adjusted years and the crude years can share one "
-                          "continuous scale even though their absolute rates cannot."),
+                          "continuous scale even though their absolute rates cannot. Where two "
+                          "sources overlap, the later one's level is matched to the earlier across "
+                          "the shared years, per state, so the series does not step at the join; "
+                          "each year is then rescaled to put the national level back at 100%."),
         "relative_validation": overlap,
         "crude": crude,
         "crude_source": ("CDC/NCHS weekly provisional counts by state (3yf8-kanr 2014-2019, "

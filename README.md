@@ -18,14 +18,31 @@ lines`), so isogonic and isoclinic read together as on a paper chart.
 
 Optional overlays: Smithsonian GVP volcanoes, the UVB latitude bounds (solar
 geometry only — no cloud, ozone, aerosol or altitude data), the ranked Tier 1–2
-sites, and a CDC state mortality choropleth (heart disease, cancer, diabetes,
-Alzheimer's) following the epoch slider across 1999–2022. States are painted as
-a percentage of that year's national rate rather than an absolute rate: the
-ratio is scale-free, so the age-adjusted years (1999–2017, before CDC froze the
-series) and the crude years built from provisional counts (2018–2022) read as
-one continuous picture. Measured agreement where both exist is r = 0.78–0.92.
-Outside that span nothing is drawn — there is no state breakdown before 1999 —
-and for heart disease and cancer the legend falls back to the national series,
+sites, and a CDC state mortality choropleth following the epoch slider: heart
+disease, cancer, diabetes and Alzheimer's across 1999–2022, and all causes
+across 1999–2026.
+
+States are painted as a percentage of that year's national rate rather than an
+absolute rate, because the ratio is scale-free and three different sources have
+to read as one picture:
+
+| years | source | measure |
+|---|---|---|
+| 1999–2017 | `bi63-dtpu` | age-adjusted rates by state (CDC froze this series at 2017) |
+| 2018–2022 | `3yf8-kanr`, `muzy-jte6` | crude rates from weekly provisional counts (frozen Sept 2023) |
+| 2023–2026 | `r8kw-7aab` | all causes only — still updated weekly |
+
+The ratio makes the scales compatible; what it leaves is a level offset per
+state, which is measured across the years two sources both cover and divided
+out, so the map does not step at the year the source changes. Each year is then
+rescaled to put the national level back at 100%, since the hue ramp is centred
+there. Measured: a year pair crossing a join moves states by 1.6–4.6pp on
+average against 1.6–5.8pp for an ordinary year pair — i.e. the joins are no
+longer findable by eye. Raw agreement in the overlap, before that correction,
+is r = 0.69–0.92.
+
+Nothing is drawn outside those spans — there is no state breakdown before 1999
+— and for heart disease and cancer the legend falls back to the national series,
 which reaches back to 1900.
 
 ## How it stays current
@@ -50,13 +67,14 @@ lean for years:
 | `data/volcano_data.js` | Smithsonian GVP Holocene volcano list (name, position, last eruption) | weekly |
 | `data/tier_data.js` | ranked sites from the source document, with the Mag and Dec axes re-scored from the live field | weekly |
 | `data/pass_data.js` | the most recent complete day of real Swarm-A 1 Hz measurements over the anomaly (ESA publishes these ~4 days behind real time) | weekly |
-| `pole_data.js`, `country_data.js`, `state_data.js`, `cdc_data.js`, `cities_data.js`, `zip_data.js` | static reference data | never |
+| `data/cdc_data.js` | CDC state mortality; the all-cause series chains onto a file CDC republishes weekly | weekly |
+| `pole_data.js`, `country_data.js`, `state_data.js`, `cities_data.js`, `zip_data.js` | static reference data | never |
 
 A weekly run makes ~45 API calls (~4 min); a full rebuild ~230 (~20 min).
 
-US state lines (interior boundaries, Census via us-atlas) fade in as you zoom
-past ~88° of visible arc. Rebuild the two static US datasets with
-`python3 scripts/build_state_lines.py` and `python3 scripts/build_cdc_data.py`.
+A weekly run also rebuilds `data/cdc_data.js` (~40 s, no token). US state lines
+(interior boundaries, Census via us-atlas) fade in as you zoom past ~88° of
+visible arc; rebuild them with `python3 scripts/build_state_lines.py`.
 
 ## Local preview
 
