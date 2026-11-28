@@ -187,13 +187,6 @@
     -webkit-appearance:none; appearance:none; flex:1; height:4px;
     background:var(--border); border-radius:2px; outline-offset:4px;
   }
-  /* when an overlay only covers part of the timeline, shade that span on the track itself */
-  input[type="range"].has-coverage{
-    background:linear-gradient(90deg,
-      var(--border) 0 var(--cov-from),
-      hsl(292 50% 48%) var(--cov-from) var(--cov-to),
-      var(--border) var(--cov-to) 100%);
-  }
   .coverage-note{ font-size:10.5px; color:var(--ink-faint); margin-top:5px; }
   .coverage-note b{ color:#c78fe0; font-weight:600; }
   .coverage-note i{ color:#e8808f; font-style:normal; font-weight:600; }
@@ -838,7 +831,30 @@
   // (the latest real data) and only reaches the forecast years once the toggle is switched on.
   const CUTOFF_IDX = epochs.map(y=>meta.source_of[y]).lastIndexOf('mco_chaos');
   const state = { layer:'decl', epochIdx: CUTOFF_IDX, playing:false, probe:null, showPass:false, showProjection:false, showVolcanoes:false, showSun:false, showTiers:false, showIsoclinic:false, showCDC:false, cdcCause:'heart' };
-  function maxAllowedIdx(){ return state.showProjection ? epochs.length-1 : CUTOFF_IDX; }
+  // The scrubber's own bounds, which the mortality overlay narrows. A timelapse that spends
+  // most of its run on a blank map is showing the shape of CDC's publishing history rather
+  // than anything that happened on the ground, so while the overlay is on the scrubber is
+  // confined to the years the selected cause actually covers -- different causes, different
+  // spans. The field layer underneath keeps rendering throughout; it is only the reachable
+  // range that shrinks, and switching the overlay off hands the whole of it straight back.
+  function fieldMaxIdx(){ return state.showProjection ? epochs.length-1 : CUTOFF_IDX; }
+  function cdcEpochRange(){
+    if (!(state.showCDC && state.layer === 'decl' && CDC)) return null;
+    const c = CDC.relative && CDC.relative.causes[state.cdcCause];
+    const ys = (c && c.years.length) ? c.years : CDC.years;
+    if (!ys || !ys.length) return null;
+    const a = epochs.indexOf(ys[0]), b = epochs.indexOf(ys[ys.length-1]);
+    return (a >= 0 && b >= a) ? [a, b] : null;
+  }
+  function minAllowedIdx(){
+    const r = cdcEpochRange();
+    return r ? Math.min(r[0], fieldMaxIdx()) : 0;
+  }
+  function maxAllowedIdx(){
+    const r = cdcEpochRange();
+    // the forecast years carry no mortality data either, so the overlay caps both ends
+    return r ? Math.max(minAllowedIdx(), Math.min(r[1], fieldMaxIdx())) : fieldMaxIdx();
+  }
   let playTimer = null;
 
   const layerCfg = {
@@ -1171,11 +1187,13 @@
     ctx2.setTransform(dpr,0,0,dpr,0,0);
     ctx2.clearRect(0,0,cw,ch);
 
-    const epochsView = epochs.slice(0, maxAllowedIdx()+1);
+    // the sparkline spans exactly what the scrubber can reach, so the two always agree
+    const lo = minAllowedIdx();
+    const epochsView = epochs.slice(lo, maxAllowedIdx()+1);
     const vals = epochsView.map(y=>meta.saa_center[y][2]);
     const vMin = Math.min(...vals), vMax = Math.max(...vals);
     const pad = 6;
-    function px(i){ return pad + i/(epochsView.length-1) * (cw-2*pad); }
+    function px(i){ return pad + i/Math.max(1, epochsView.length-1) * (cw-2*pad); }
     function py(v){ return ch-10 - (v-vMin)/(vMax-vMin) * (ch-20); }
 
     // grid
@@ -1201,8 +1219,8 @@
     vals.forEach((v,i)=>{ const x=px(i), yy=py(v); if(i===0) ctx2.moveTo(x,yy); else ctx2.lineTo(x,yy); });
     ctx2.strokeStyle = '#d9502b'; ctx2.lineWidth = 1.6; ctx2.stroke();
 
-    // current epoch marker
-    const i = state.epochIdx;
+    // current epoch marker, in sparkline coordinates rather than absolute epoch index
+    const i = Math.max(0, Math.min(vals.length-1, state.epochIdx - lo));
     ctx2.strokeStyle = 'rgba(238,241,246,0.5)'; ctx2.lineWidth=1;
     ctx2.beginPath(); ctx2.moveTo(px(i),8); ctx2.lineTo(px(i),ch-4); ctx2.stroke();
     ctx2.fillStyle = '#eef1f6';
@@ -1937,15 +1955,22 @@
 
   // ---------- controls wiring ----------
   const slider = document.getElementById('epochSlider');
-  slider.max = maxAllowedIdx();
-  slider.value = state.epochIdx;
+  // both ends of the scrubber move with the overlay, so set them in one place and pull the
+  // current epoch back inside them whenever anything that defines the range changes
+  function syncSliderRange(){
+    const lo = minAllowedIdx(), hi = maxAllowedIdx();
+    slider.min = lo;
+    slider.max = hi;
+    state.epochIdx = Math.max(lo, Math.min(hi, state.epochIdx));
+    slider.value = state.epochIdx;
+  }
+  syncSliderRange();
   slider.addEventListener('input', ()=>{ state.epochIdx = +slider.value; render(); renderSpark(); });
 
   const projToggle = document.getElementById('projToggle');
   projToggle.addEventListener('change', ()=>{
     state.showProjection = projToggle.checked;
-    slider.max = maxAllowedIdx();
-    if (state.epochIdx > maxAllowedIdx()) { state.epochIdx = maxAllowedIdx(); slider.value = state.epochIdx; }
+    syncSliderRange();
     syncCoverageBand();
     render(); renderSpark();
   });
@@ -1986,21 +2011,11 @@
   wireOverlayToggle('sunToggle', 'showSun');
   wireOverlayToggle('tierToggle', 'showTiers');
   wireOverlayToggle('isoclinicToggle', 'showIsoclinic');
-  wireOverlayToggle('cdcToggle', 'showCDC', ()=>{
-    // the default epoch sits outside the state series, so switching the overlay on would
-    // otherwise paint nothing. Move to the nearest year that has data -- the slider visibly
-    // jumps, so this reads as "here is where the data is", not as data appearing from nowhere.
-    if (!state.showCDC || !CDC || cdcSeries()) return;
-    const ys = (CDC.relative && CDC.relative.years.length) ? CDC.relative.years : CDC.years;
-    const y = epochs[state.epochIdx];
-    const target = y < ys[0] ? ys[0] : ys[ys.length - 1];
-    const idx = epochs.indexOf(target);
-    if (idx >= 0 && idx <= maxAllowedIdx()){
-      state.epochIdx = idx;
-      slider.value = idx;
-      renderSpark();
-    }
-  });
+  // syncCdcUI (run by wireOverlayToggle before this) already narrows the range and pulls the
+  // epoch inside it, which also handles the old special case of switching the overlay on from
+  // a year with no state data: the scrubber visibly jumps to the nearest year that has some,
+  // so it reads as "here is where the data is" rather than as data appearing from nowhere.
+  wireOverlayToggle('cdcToggle', 'showCDC');
 
   // cause picker, only meaningful while the overlay is on and only on the declination layer
   const cdcSelect = document.getElementById('cdcCause');
@@ -2012,33 +2027,33 @@
       .map(k => `<option value="${k}">${CDC.relative.causes[k].label}${
         k === 'all' ? ' (to ' + CDC.relative.causes[k].years.slice(-1)[0] + ')' : ''}</option>`).join('');
     cdcSelect.value = state.cdcCause;
-    cdcSelect.addEventListener('change', ()=>{ state.cdcCause = cdcSelect.value; render(); });
+    cdcSelect.addEventListener('change', ()=>{
+      state.cdcCause = cdcSelect.value;
+      syncSliderRange();        // all-cause reaches 2026; the named causes stop at 2022
+      syncCoverageBand();
+      render(); renderSpark();
+    });
   }
+  // The track used to be shaded to mark the covered span inside a 1900-2030 scrubber. The
+  // scrubber is now clipped to that span instead, so there is no uncovered stretch left to
+  // shade -- the note just says what the range became, and how to get the rest back.
   function syncCoverageBand(){
     const note = document.getElementById('coverageNote');
-    const on = state.showCDC && state.layer === 'decl' && CDC;
-    slider.classList.toggle('has-coverage', !!on);
+    const on = state.showCDC && state.layer === 'decl' && CDC && cdcEpochRange();
     if (!on){ note.hidden = true; return; }
-    const maxIdx = maxAllowedIdx();
-    if (maxIdx <= 0){ note.hidden = true; return; }
-    const i0 = epochs.indexOf(CDC.years[0]), i1 = epochs.indexOf(CDC.years[CDC.years.length - 1]);
-    const relC = CDC.relative && CDC.relative.causes[state.cdcCause];
-    const rel = relC && relC.years.length ? relC.years : null;
-    const a = rel ? epochs.indexOf(rel[0]) : i0;
-    const b = rel ? epochs.indexOf(rel[rel.length - 1]) : i1;
-    if (a < 0 || b < 0){ note.hidden = true; return; }
-    const pct = i => (100 * i / maxIdx) + '%';
-    slider.style.setProperty('--cov-from', pct(a));
-    slider.style.setProperty('--cov-to',   pct(b));
+    const lo = minAllowedIdx(), hi = maxAllowedIdx();
     note.hidden = false;
-    note.innerHTML = `<b>${epochs[a]}–${epochs[b]}</b> — years with CDC state data. Outside it the map is left blank.`;
+    note.innerHTML = `Scrubber limited to <b>${epochs[lo]}–${epochs[hi]}</b>, the years this cause `
+      + `has CDC state data. Turn the overlay off for the full ${epochs[0]}–${epochs[fieldMaxIdx()]} field range.`;
   }
 
   function syncCdcUI(){
     const on = state.showCDC && state.layer === 'decl';
     document.getElementById('cdcToggle').hidden = state.layer !== 'decl';
     cdcSelect.hidden = !on;
+    syncSliderRange();          // leaving the declination layer restores the full range
     syncCoverageBand();
+    renderSpark();
   }
 
   syncCdcUI();
@@ -2065,7 +2080,8 @@
     playBtn.setAttribute('aria-label', state.playing ? 'Pause timelapse' : 'Play timelapse');
     if (state.playing){
       playTimer = setInterval(()=>{
-        state.epochIdx = (state.epochIdx+1) % (maxAllowedIdx()+1);
+        const lo = minAllowedIdx(), hi = maxAllowedIdx();
+        state.epochIdx = state.epochIdx >= hi ? lo : Math.max(lo, state.epochIdx + 1);
         slider.value = state.epochIdx;
         render(); renderSpark();
       }, 650);
